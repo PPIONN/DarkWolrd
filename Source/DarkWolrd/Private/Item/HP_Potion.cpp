@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 
-#include "HP_Potion.h"
+#include "Item/HP_Potion.h"
 
 // Sets default values
 AHP_Potion::AHP_Potion()

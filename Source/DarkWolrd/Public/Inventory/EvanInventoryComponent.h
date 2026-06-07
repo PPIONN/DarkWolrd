@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "HP_Potion.h"
+#include "Item/HP_Potion.h"
 #include "EvanInventoryComponent.generated.h"
 
 // [아이템 기본 정보] 가방(TArray)에 담길 데이터

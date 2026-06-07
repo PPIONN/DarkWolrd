@@ -1,4 +1,4 @@
-﻿#include "EvanInventoryComponent.h"
+﻿#include "Inventory/EvanInventoryComponent.h"
 
 
 UEvanInventoryComponent::UEvanInventoryComponent()
