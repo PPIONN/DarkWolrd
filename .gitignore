@@ -1,0 +1,30 @@
+# 언리얼 엔진 자동 생성 폴더 (용량 크고 재생성 가능)
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.VC.db
+*.opensdf
+*.sdf
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# 컴파일된 Python 파일
+__pycache__/
+*.pyc
+
+# 운영체제 파일
+.DS_Store
+Thumbs.db
+
+# 패키징 결과물
+Packaged/
+Package/
+dist/
