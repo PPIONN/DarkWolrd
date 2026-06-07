@@ -8,6 +8,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 
 
+// 생성자: 스프링암·카메라 컴포넌트를 만들고 캐릭터 이동 방식을 설정
 ARabbit::ARabbit()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -30,6 +31,7 @@ ARabbit::ARabbit()
 }
 
 
+// 게임 시작 시 한 번 호출: 플레이어 컨트롤러에 입력 매핑 컨텍스트를 등록
 void ARabbit::BeginPlay()
 {
 	Super::BeginPlay();
@@ -45,12 +47,14 @@ void ARabbit::BeginPlay()
 }
 
 
+// 매 프레임 호출: 현재는 별도 로직 없이 부모 Tick만 실행
 void ARabbit::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 }
 
 
+// 입력 바인딩: 각 입력 액션을 해당 함수에 연결
 void ARabbit::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
@@ -66,6 +70,7 @@ void ARabbit::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 }
 
 
+// 이동 처리: 입력값(앞뒤/좌우)을 카메라 방향 기준으로 변환하여 캐릭터를 움직임
 void ARabbit::Move(const FInputActionValue& Value)
 {
 	FVector2D MovementVector = Value.Get<FVector2D>();
@@ -82,6 +87,7 @@ void ARabbit::Move(const FInputActionValue& Value)
 }
 
 
+// 시점 회전: 마우스 움직임으로 카메라를 상하좌우로 돌림
 void ARabbit::Look(const FInputActionValue& Value)
 {
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
@@ -92,6 +98,7 @@ void ARabbit::Look(const FInputActionValue& Value)
 }
 
 
+// 인벤토리 토글: 닫혀있으면 열고(마우스 커서 활성화), 열려있으면 닫음(게임 조작 복귀)
 void ARabbit::ToggleInventory()
 {
 	if (!InventoryWidgetClass) return;
