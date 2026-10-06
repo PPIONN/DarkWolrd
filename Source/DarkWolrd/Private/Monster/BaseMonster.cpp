@@ -4,6 +4,9 @@
 #include "Item/MonsterCardPickup.h"
 #include "Summon/SummonAIComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Animation/AnimSequence.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "TimerManager.h"
@@ -55,6 +58,11 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 		CurrentHP = 0.f;
 		Die();
 	}
+	else if (HitMontage && !GetCurrentMontage())
+	{
+		// 공격 몽타주를 끊으면 타격 타이밍이 어긋나 보이므로, 다른 몽타주가 없을 때만 움찔함
+		PlayAnimMontage(HitMontage);
+	}
 
 	return ActualDamage;
 }
@@ -90,7 +98,8 @@ void ABaseMonster::ClearCurse()
 }
 
 
-// 사망 처리: 기본 구현은 카드 드랍 판정 후 액터를 세상에서 제거. 자식 클래스에서 재정의하여 사망 애니메이션 등 추가 가능
+// 사망 처리: 카드 드랍(야생) 또는 소환주에게 통보(소환수) 후, AI·이동·충돌을 끄고
+// DeathAnimation이 있으면 재생 → 마지막 포즈로 CorpseLingerTime만큼 남았다가 사라짐. 없으면 즉시 제거
 void ABaseMonster::Die()
 {
 	// 소환수는 자기 자신의 카드를 드랍하지 않음 (야생 몬스터 사망 시에만 해당).
@@ -111,8 +120,22 @@ void ABaseMonster::Die()
 		SummonAIComponent->DeactivateSummonAI();
 	}
 
-	// TODO: 사망 애니메이션, EXP 지급 등 자식 클래스에서 구현
-	Destroy();
+	if (!DeathAnimation)
+	{
+		Destroy();
+		return;
+	}
+
+	// 시체가 더 이상 움직이거나 길을 막지 않도록 컨트롤러를 떼고 이동·충돌을 끔
+	DetachFromControllerPendingDestroy();
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->DisableMovement();
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// 애님 BP 대신 이 시퀀스 하나만 반복 없이 재생 → 끝나면 마지막 포즈에서 멈춰 있음
+	GetMesh()->PlayAnimation(DeathAnimation, /*bLooping=*/false);
+	SetLifeSpan(FMath::Max(DeathAnimation->GetPlayLength() + CorpseLingerTime, 0.1f));
 }
 
 // 생존 여부 확인: 현재 체력이 0보다 크면 살아있음

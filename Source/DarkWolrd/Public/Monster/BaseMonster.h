@@ -12,6 +12,7 @@ class UNiagaraSystem;
 class UNiagaraComponent;
 class USummonAIComponent;
 class UAnimMontage;
+class UAnimSequence;
 
 // EMonsterGrade: 몬스터 등급. 전투 스탯과는 무관하며, 이 몬스터가 드랍할 수 있는
 // 장비/무기/악세서리의 최고 등급만 결정한다 (장비 등급 체계와 동일).
@@ -96,6 +97,22 @@ public:
 	// CardDropChance: 처치 시 이 몬스터의 카드를 드랍할 확률 (0~1). 모든 등급에서 드랍 가능
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
 	float CardDropChance = 0.15f;
+
+	// ─── 피격 / 사망 연출 (야생 몬스터·소환수 공통) ───────────────────────────────────────
+
+	// HitMontage: 피해를 받고 살아남았을 때 재생할 몽타주. 공격 등 다른 몽타주가 재생 중이면 끊지 않음.
+	// 애님 BP의 AnimGraph에 Slot 'DefaultSlot' 노드가 있어야 보임
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Animation")
+	UAnimMontage* HitMontage = nullptr;
+
+	// DeathAnimation: 사망 시 한 번 재생하고 마지막 포즈로 멈춰 있을 애니메이션 시퀀스 (몽타주로 만들 필요 없음).
+	// 비워두면 예전처럼 죽는 즉시 사라짐
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Animation")
+	UAnimSequence* DeathAnimation = nullptr;
+
+	// CorpseLingerTime: 사망 애니메이션이 끝난 뒤 시체가 남아 있는 시간(초). 그 뒤 사라짐
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Animation")
+	float CorpseLingerTime = 2.f;
 
 	// ─── 소환수 상태 (플레이어가 소환한 개체일 때만 사용) ───────────────────────────────────────
 
