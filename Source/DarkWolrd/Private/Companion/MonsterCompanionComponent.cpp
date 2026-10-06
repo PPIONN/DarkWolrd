@@ -4,6 +4,7 @@
 #include "Monster/BaseMonster.h"
 #include "Summon/SummonAIComponent.h"
 #include "Stats/CharacterStatComponent.h"
+#include "UI/GameAnnouncementSubsystem.h"
 
 UMonsterCompanionComponent::UMonsterCompanionComponent()
 {
@@ -68,6 +69,11 @@ FRegisteredMonsterEntry* UMonsterCompanionComponent::FindRegisteredEntry(TSubcla
 // 패시브는 마지막에 한 번만 다시 계산함 (중간에 해제 상태로 계산하면 늘어났던 최대 HP가 줄면서 현재 HP가 깎임)
 void UMonsterCompanionComponent::Resummon()
 {
+	if (bSummonLocked)
+	{
+		UGameAnnouncementSubsystem::AnnounceInWorld(this, NSLOCTEXT("Summon", "SummonLocked", "지금은 재소환할 수 없습니다"), 2.f);
+		return;
+	}
 	if (GetResummonCooldownRemaining() > 0.f) return;
 
 	DestroyActiveSummons();

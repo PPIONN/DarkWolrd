@@ -67,6 +67,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
 	EMonsterGrade Grade = EMonsterGrade::Basic;
 
+	// bIgnoresPlayerCharacter: 켜면 플레이어 캐릭터(토끼)를 공격 대상으로 삼지 않고, 토끼가 직접 주는 피해도 받지 않음.
+	// 소환수끼리만 싸우는 몬스터대전 상대용 (플레이어 소환수가 주는 피해는 정상으로 받음)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
+	bool bIgnoresPlayerCharacter = false;
+
 	// Faction: 전투 진영. 야생 몬스터는 Wild, 플레이어 소환수는 소환될 때 Player로 바뀜, 몬스터대전 상대는 ArenaOpponent.
 	// 서로 다른 진영끼리만 싸움
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")

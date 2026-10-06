@@ -62,8 +62,12 @@ void AMagicOrbProjectile::OnCollisionSphereBeginOverlap(UPrimitiveComponent* Ove
 	if (!bLaunched) return;
 	if (!OtherActor || OtherActor == this || OtherActor == GetOwner()) return;
 
-	// 플레이어의 소환수처럼 적대 진영이 아닌 몬스터는 피해·저주 없이 그대로 통과시킴 (구슬도 사라지지 않음)
-	if (Cast<ABaseMonster>(OtherActor) && !CombatFaction::AreHostile(GetOwner(), OtherActor)) return;
+	// 플레이어의 소환수처럼 적대 진영이 아닌 몬스터, 그리고 몬스터대전 상대처럼 플레이어 캐릭터를 무시하는 몬스터는
+	// 피해·저주 없이 그대로 통과시킴 (구슬도 사라지지 않음)
+	if (const ABaseMonster* HitMonster = Cast<ABaseMonster>(OtherActor))
+	{
+		if (!CombatFaction::AreHostile(GetOwner(), HitMonster) || HitMonster->bIgnoresPlayerCharacter) return;
+	}
 
 	UGameplayStatics::ApplyDamage(OtherActor, Damage, GetInstigatorController(), this, nullptr);
 	ApplyOnHitEffect(OtherActor);

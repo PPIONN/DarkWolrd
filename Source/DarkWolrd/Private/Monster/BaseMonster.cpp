@@ -44,9 +44,16 @@ void ABaseMonster::Tick(float DeltaTime)
 float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent,
 	AController* EventInstigator, AActor* DamageCauser)
 {
-	float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
-
 	if (!IsAlive()) return 0.f;
+
+	// 몬스터대전 상대처럼 플레이어 캐릭터를 무시하는 몬스터는 토끼가 직접(마법 구체 등) 주는 피해를 받지 않음
+	if (bIgnoresPlayerCharacter && DamageCauser)
+	{
+		const AActor* Attacker = (!DamageCauser->IsA<APawn>() && DamageCauser->GetInstigator()) ? DamageCauser->GetInstigator() : DamageCauser;
+		if (Attacker->FindComponentByClass<UCharacterStatComponent>()) return 0.f;
+	}
+
+	float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
 
 	// 저주 상태면 실제로 받는 피해량 자체를 증폭시킴 (모든 공격자·모든 대미지 소스에 공통 적용)
 	ActualDamage *= CurseDamageAmplifyMultiplier;

@@ -3,6 +3,7 @@
 #include "AI/WildMonsterAIComponent.h"
 #include "Monster/BaseMonster.h"
 #include "Combat/CombatFaction.h"
+#include "Stats/CharacterStatComponent.h"
 #include "AIController.h"
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -60,7 +61,7 @@ void UWildMonsterAIComponent::NotifyAttacked(AActor* Attacker)
 	{
 		Attacker = Attacker->GetInstigator();
 	}
-	if (!CombatFaction::AreHostile(GetOwner(), Attacker) || !CombatFaction::IsAlive(Attacker)) return;
+	if (!CanTarget(Attacker)) return;
 
 	if (!CombatFaction::IsAlive(CurrentTarget))
 	{
@@ -83,7 +84,7 @@ void UWildMonsterAIComponent::TickDecision()
 	}
 
 	// 대상이 쓰러졌거나(플레이어 사망 포함) 더 이상 적이 아니면 놓아줌
-	if (CurrentTarget && (!CombatFaction::IsAlive(CurrentTarget) || !CombatFaction::AreHostile(SelfMonster, CurrentTarget)))
+	if (CurrentTarget && !CanTarget(CurrentTarget))
 	{
 		CurrentTarget = nullptr;
 	}
@@ -135,7 +136,7 @@ AActor* UWildMonsterAIComponent::FindNearestHostile() const
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
 		AActor* Candidate = Overlap.GetActor();
-		if (!CombatFaction::AreHostile(Self, Candidate) || !CombatFaction::IsAlive(Candidate)) continue;
+		if (!CanTarget(Candidate)) continue;
 
 		const float DistSq = FVector::DistSquared(Self->GetActorLocation(), Candidate->GetActorLocation());
 		if (DistSq < NearestDistSq)
@@ -145,6 +146,19 @@ AActor* UWildMonsterAIComponent::FindNearestHostile() const
 		}
 	}
 	return Nearest;
+}
+
+
+bool UWildMonsterAIComponent::CanTarget(const AActor* Candidate) const
+{
+	if (!CombatFaction::AreHostile(GetOwner(), Candidate) || !CombatFaction::IsAlive(Candidate)) return false;
+
+	const ABaseMonster* SelfMonster = GetOwnerMonster();
+	if (SelfMonster && SelfMonster->bIgnoresPlayerCharacter && Candidate->FindComponentByClass<UCharacterStatComponent>())
+	{
+		return false;
+	}
+	return true;
 }
 
 

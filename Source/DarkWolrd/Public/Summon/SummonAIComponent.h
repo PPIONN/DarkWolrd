@@ -78,6 +78,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Wander")
 	float WanderSpeedMultiplier = 0.45f;
 
+	// ─── 자동 교전 (몬스터대전 등) ───────────────────────────────────────
+
+	// bAutoEngage: 켜면 우선순위 1~3이 없을 때 AutoEngageRadius 안의 가장 가까운 적을 스스로 찾아 싸움(우선순위 4).
+	// 필드에서는 기본으로 꺼져 있고, 몬스터대전 중에만 아레나가 켬. "4+1"(모여) 명령 중에는 동작하지 않음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Auto Engage")
+	bool bAutoEngage = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Auto Engage")
+	float AutoEngageRadius = 2500.f;
+
 	// ActivateSummonAI: 이 몬스터가 플레이어의 소환수로 전투에 참여함. OwnerPlayer를 등록하고 판단 루프를 시작함
 	// (이름에 SummonAI를 붙인 이유: UActorComponent에 이미 다른 시그니처의 Activate()가 있어 이름 충돌 방지)
 	UFUNCTION(BlueprintCallable, Category = "Summon AI")
@@ -110,6 +120,9 @@ private:
 	// DecideTarget: 우선순위 규칙에 따라 지금 싸워야 할 대상을 고름. 없으면 nullptr(따라다니기 상태)
 	AActor* DecideTarget();
 
+	// FindAutoEngageTarget: AutoEngageRadius 안에서 살아있는 가장 가까운 적대 액터
+	AActor* FindAutoEngageTarget() const;
+
 	// UpdateFollow: 전투 대상이 없을 때 플레이어 뒤 자기 자리로 이동하고, 많이 벌어졌으면 속도를 올림
 	void UpdateFollow(AAIController* AICon);
 
@@ -133,6 +146,10 @@ private:
 	AActor* SelfDefenseTarget = nullptr;
 
 	bool bSelfDefenseEngaged = false;
+
+	// AutoEngageTarget: 자동 교전으로 고른 대상. 쓰러질 때까지 바꾸지 않아서 매번 가장 가까운 적으로 흔들리지 않음
+	UPROPERTY()
+	AActor* AutoEngageTarget = nullptr;
 
 	// bForceGather: "4+1" 커맨드로 켜짐. 자신이 공격받기 전까지는 계속 플레이어 곁에 모임
 	bool bForceGather = false;

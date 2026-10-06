@@ -11,6 +11,7 @@
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "GameFramework/Character.h"
+#include "Engine/OverlapResult.h"
 
 USummonAIComponent::USummonAIComponent()
 {
@@ -31,6 +32,7 @@ void USummonAIComponent::ActivateSummonAI(AActor* InOwnerPlayer, int32 InFollowS
 
 	OwnerPlayer = InOwnerPlayer;
 	FollowSlotIndex = InFollowSlotIndex;
+	AutoEngageTarget = nullptr;
 	SelfDefenseTarget = nullptr;
 	bSelfDefenseEngaged = false;
 	bForceGather = false;
@@ -48,6 +50,7 @@ void USummonAIComponent::DeactivateSummonAI()
 	StopDecisionLoop();
 
 	OwnerPlayer = nullptr;
+	AutoEngageTarget = nullptr;
 	SelfDefenseTarget = nullptr;
 	bSelfDefenseEngaged = false;
 	bForceGather = false;
@@ -130,8 +133,49 @@ AActor* USummonAIComponent::DecideTarget()
 		return SelfDefenseTarget;
 	}
 
+	// 우선순위 4: 자동 교전 (몬스터대전 등에서만 켜짐). 고른 대상이 쓰러질 때까지 유지
+	if (bAutoEngage && !bForceGather)
+	{
+		if (!CombatFaction::IsAlive(AutoEngageTarget) || !CombatFaction::AreHostile(GetOwner(), AutoEngageTarget))
+		{
+			AutoEngageTarget = FindAutoEngageTarget();
+		}
+		if (AutoEngageTarget)
+		{
+			return AutoEngageTarget;
+		}
+	}
+
 	// 후보 없음: 따라다니기/배회 상태
 	return nullptr;
+}
+
+
+AActor* USummonAIComponent::FindAutoEngageTarget() const
+{
+	const AActor* Self = GetOwner();
+
+	TArray<FOverlapResult> Overlaps;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(Self);
+	GetWorld()->OverlapMultiByObjectType(Overlaps, Self->GetActorLocation(), FQuat::Identity,
+		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(AutoEngageRadius), QueryParams);
+
+	AActor* Nearest = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		AActor* Candidate = Overlap.GetActor();
+		if (!CombatFaction::AreHostile(Self, Candidate) || !CombatFaction::IsAlive(Candidate)) continue;
+
+		const float DistSq = FVector::DistSquared(Self->GetActorLocation(), Candidate->GetActorLocation());
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Nearest = Candidate;
+		}
+	}
+	return Nearest;
 }
 
 
@@ -190,6 +234,10 @@ void USummonAIComponent::OnTargetKilled(AActor* Victim, float VictimRewardEXP)
 	{
 		SelfDefenseTarget = nullptr;
 		bSelfDefenseEngaged = false;
+	}
+	if (AutoEngageTarget == Victim)
+	{
+		AutoEngageTarget = nullptr;
 	}
 }
 

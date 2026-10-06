@@ -11,6 +11,7 @@
 #include "Companion/MonsterCompanionComponent.h"
 #include "Monster/BaseMonster.h"
 #include "Monster/FieldBossSpawner.h"
+#include "Arena/MonsterArena.h"
 #include "DarkWolrdGameInstance.h"
 #include "EngineUtils.h"
 #include "Engine/DamageEvents.h"
@@ -740,4 +741,19 @@ void ARabbit::DebugKillNearby(float Radius)
 		++KilledCount;
 	}
 	ShowSummonDebugMessage(FString::Printf(TEXT("DebugKillNearby: %d마리 처치"), KilledCount));
+}
+
+
+// 디버그: 레벨의 첫 번째 아레나에서 바로 대전 시작
+void ARabbit::DebugStartArena()
+{
+	for (TActorIterator<AMonsterArena> It(GetWorld()); It; ++It)
+	{
+		if (!It->StartMatch(this))
+		{
+			ShowSummonDebugMessage(TEXT("DebugStartArena: 시작 실패 (이미 진행 중이거나 소환수/상대 없음)"), FColor::Red);
+		}
+		return;
+	}
+	ShowSummonDebugMessage(TEXT("DebugStartArena: 레벨에 MonsterArena가 없음"), FColor::Red);
 }

@@ -175,6 +175,10 @@ public:
 	UFUNCTION(Exec)
 	void DebugKillNearby(float Radius = 3000.f);
 
+	// DebugStartArena → 시작 발판을 밟지 않고 레벨의 첫 번째 몬스터대전 아레나에서 바로 대전 시작
+	UFUNCTION(Exec)
+	void DebugStartArena();
+
 	// Landed: 캐릭터가 낙하 중 땅에 닿을 때 엔진이 자동으로 호출. 대시로 인한 낙하였으면 여기서 착지 몽타주를 재생함
 	virtual void Landed(const FHitResult& Hit) override;
 

@@ -89,8 +89,11 @@ protected:
 	virtual void TickDecision() override;
 
 private:
-	// FindNearestHostile: AggroRadius 안에서 살아있는 가장 가까운 적대 진영 액터
+	// FindNearestHostile: AggroRadius 안에서 공격할 수 있는 가장 가까운 대상
 	AActor* FindNearestHostile() const;
+
+	// CanTarget: 살아있는 적대 진영이고, (bIgnoresPlayerCharacter 몬스터라면) 플레이어 캐릭터가 아닌지
+	bool CanTarget(const AActor* Candidate) const;
 
 	// BeginReturnHome / UpdateReturnHome: 대상을 버리고 집으로 돌아감. 도착하면 (설정에 따라) HP 회복
 	void BeginReturnHome();

@@ -278,6 +278,9 @@ void UMonsterAIComponent::DamageTarget(AActor* Target, float DamageMultiplier)
 
 	if (const UCharacterStatComponent* TargetStat = Target->FindComponentByClass<UCharacterStatComponent>())
 	{
+		// 몬스터대전 상대처럼 플레이어 캐릭터를 무시하는 몬스터는 범위 공격에 휘말린 토끼에게도 피해를 주지 않음
+		if (SelfMonster->bIgnoresPlayerCharacter) return;
+
 		// 플레이어 대상: 플레이어 최대 HP와 방어력을 반영하는 몬스터 → 플레이어 공식
 		Damage = SelfMonster->CalculatePlayerDamage(TargetStat->GetMaxHP(), TargetStat->GetTotalDefense()) * DamageMultiplier;
 	}

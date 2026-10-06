@@ -70,6 +70,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon")
 	float ResummonCooldown = 0.f;
 
+	// SetSummonLocked: 켜두면 Y 재소환이 막힘 (몬스터대전 중 재소환으로 HP를 채우거나 판을 뒤엎는 것 방지)
+	UFUNCTION(BlueprintCallable, Category = "Summon")
+	void SetSummonLocked(bool bLocked) { bSummonLocked = bLocked; }
+
+	UFUNCTION(BlueprintCallable, Category = "Summon")
+	bool IsSummonLocked() const { return bSummonLocked; }
+
 	// GetResummonCooldownRemaining: 다시 재소환할 수 있을 때까지 남은 시간(초). 0이면 지금 가능 (UI 표시용)
 	UFUNCTION(BlueprintCallable, Category = "Summon")
 	float GetResummonCooldownRemaining() const;
@@ -114,4 +121,6 @@ private:
 
 	// LastResummonTime: 마지막으로 실제 소환에 성공한 시각 (ResummonCooldown 계산용)
 	float LastResummonTime = -1000.f;
+
+	bool bSummonLocked = false;
 };
