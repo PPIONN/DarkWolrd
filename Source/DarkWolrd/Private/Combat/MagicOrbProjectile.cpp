@@ -2,6 +2,7 @@
 
 #include "Combat/MagicOrbProjectile.h"
 #include "Combat/AbilityComponent.h"
+#include "Monster/BaseMonster.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
@@ -60,6 +61,12 @@ void AMagicOrbProjectile::OnCollisionSphereBeginOverlap(UPrimitiveComponent* Ove
 {
 	if (!bLaunched) return;
 	if (!OtherActor || OtherActor == this || OtherActor == GetOwner()) return;
+
+	// 플레이어의 소환수는 아군이므로 피해·저주 없이 그대로 통과시킴 (구슬도 사라지지 않음)
+	if (const ABaseMonster* HitMonster = Cast<ABaseMonster>(OtherActor))
+	{
+		if (HitMonster->bIsPlayerSummon) return;
+	}
 
 	UGameplayStatics::ApplyDamage(OtherActor, Damage, GetInstigatorController(), this, nullptr);
 	ApplyOnHitEffect(OtherActor);
