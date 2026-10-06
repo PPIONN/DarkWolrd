@@ -171,6 +171,10 @@ public:
 	UFUNCTION(Exec)
 	void DebugSpawnFieldBoss();
 
+	// DebugKillNearby 3000 → 반경(cm) 안의 적대 몬스터를 전부 쓰러뜨림 (보상도 정상 지급). 던전 웨이브 진행 테스트용
+	UFUNCTION(Exec)
+	void DebugKillNearby(float Radius = 3000.f);
+
 	// Landed: 캐릭터가 낙하 중 땅에 닿을 때 엔진이 자동으로 호출. 대시로 인한 낙하였으면 여기서 착지 몽타주를 재생함
 	virtual void Landed(const FHitResult& Hit) override;
 

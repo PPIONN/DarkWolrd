@@ -11,7 +11,9 @@
 #include "Companion/MonsterCompanionComponent.h"
 #include "Monster/BaseMonster.h"
 #include "Monster/FieldBossSpawner.h"
+#include "DarkWolrdGameInstance.h"
 #include "EngineUtils.h"
+#include "Engine/DamageEvents.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/Blueprint.h"
 #include "Engine/Engine.h"
@@ -60,7 +62,13 @@ void ARabbit::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 쓰러졌을 때 돌아올 부활 지점 = 처음 등장한 위치
+	// 던전 입장/귀환으로 레벨을 옮겨왔다면 직전 레벨의 상태(HP·스탯·카드)와 도착 위치를 복원
+	if (UDarkWolrdGameInstance* GameInstance = Cast<UDarkWolrdGameInstance>(GetGameInstance()))
+	{
+		GameInstance->RestorePlayerAfterTravel(this);
+	}
+
+	// 쓰러졌을 때 돌아올 부활 지점 = 이 레벨에서 처음 선 위치
 	RespawnTransform = GetActorTransform();
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
@@ -715,4 +723,21 @@ void ARabbit::DebugSpawnFieldBoss()
 	{
 		ShowSummonDebugMessage(TEXT("DebugSpawnFieldBoss: 레벨에 FieldBossSpawner가 없음"), FColor::Red);
 	}
+}
+
+
+// 디버그: 반경 안의 적대 몬스터를 전부 쓰러뜨림. 플레이어가 준 피해로 처리되므로 경험치·돈·카드 드랍도 정상 발생
+void ARabbit::DebugKillNearby(float Radius)
+{
+	int32 KilledCount = 0;
+	for (TActorIterator<ABaseMonster> It(GetWorld()); It; ++It)
+	{
+		ABaseMonster* Monster = *It;
+		if (!Monster->IsAlive() || !CombatFaction::AreHostile(this, Monster)) continue;
+		if (FVector::Dist(Monster->GetActorLocation(), GetActorLocation()) > Radius) continue;
+
+		Monster->TakeDamage(Monster->GetMaxHP() * 10.f, FDamageEvent(), GetController(), this);
+		++KilledCount;
+	}
+	ShowSummonDebugMessage(FString::Printf(TEXT("DebugKillNearby: %d마리 처치"), KilledCount));
 }

@@ -140,22 +140,30 @@ void UDarkWolrdGameInstance::SetActiveCharacter(const FString& SlotName)
 }
 
 
-// 즉시 저장: 현재 플레이어가 조종 중인 캐릭터의 StatComponent 값을 읽어 슬롯에 덮어씀
+// 즉시 저장: 현재 플레이어가 조종 중인 캐릭터의 상태를 읽어 슬롯에 덮어씀
 void UDarkWolrdGameInstance::SaveActiveCharacterNow()
 {
 	if (ActiveCharacterSlotName.IsEmpty()) return;
 
 	APlayerController* PC = GetFirstLocalPlayerController();
-	ACharacter* PlayerCharacter = PC ? PC->GetCharacter() : nullptr;
-	UCharacterStatComponent* StatComponent = PlayerCharacter ? PlayerCharacter->FindComponentByClass<UCharacterStatComponent>() : nullptr;
+	if (UDarkWolrdSaveGame* SaveData = BuildSaveDataFromCharacter(PC ? PC->GetCharacter() : nullptr, ActiveCharacterSlotName))
+	{
+		UGameplayStatics::SaveGameToSlot(SaveData, ActiveCharacterSlotName, SaveUserIndex);
+	}
+}
 
-	if (!StatComponent) return;
+
+// 세이브 데이터 만들기: 스탯 컴포넌트가 없으면(플레이어가 아니면) nullptr
+UDarkWolrdSaveGame* UDarkWolrdGameInstance::BuildSaveDataFromCharacter(ACharacter* PlayerCharacter, const FString& SlotName) const
+{
+	UCharacterStatComponent* StatComponent = PlayerCharacter ? PlayerCharacter->FindComponentByClass<UCharacterStatComponent>() : nullptr;
+	if (!StatComponent) return nullptr;
 
 	UDarkWolrdSaveGame* SaveData = Cast<UDarkWolrdSaveGame>(UGameplayStatics::CreateSaveGameObject(UDarkWolrdSaveGame::StaticClass()));
-	if (!SaveData) return;
+	if (!SaveData) return nullptr;
 
-	SaveData->SlotName = ActiveCharacterSlotName;
-	SaveData->CharacterName = ActiveCharacterSlotName;
+	SaveData->SlotName = SlotName;
+	SaveData->CharacterName = SlotName;
 	SaveData->Level = StatComponent->Level;
 	SaveData->CurrentEXP = StatComponent->CurrentEXP;
 	SaveData->CurrentHP = StatComponent->CurrentHP;
@@ -174,7 +182,63 @@ void UDarkWolrdGameInstance::SaveActiveCharacterNow()
 		SaveData->SelectedSummonSlots = CompanionComponent->SelectedSummonSlots;
 	}
 
-	UGameplayStatics::SaveGameToSlot(SaveData, ActiveCharacterSlotName, SaveUserIndex);
+	return SaveData;
+}
+
+
+FString UDarkWolrdGameInstance::GetCurrentLevelPath() const
+{
+	const UWorld* World = GetWorld();
+	return World ? UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) : FString();
+}
+
+
+// 떠나기 전: 플레이어 상태를 메모리에 담고, 필요하면 돌아올 위치를 기억. 세이브 슬롯이 있으면 디스크에도 저장해둠
+void UDarkWolrdGameInstance::PrepareLevelTravel(ACharacter* PlayerCharacter, bool bSetReturnPoint, const FTransform& InReturnTransform)
+{
+	PendingTravelSnapshot = BuildSaveDataFromCharacter(PlayerCharacter, ActiveCharacterSlotName);
+
+	if (bSetReturnPoint)
+	{
+		ReturnLevelPath = GetCurrentLevelPath();
+		ReturnTransform = InReturnTransform;
+	}
+
+	SaveActiveCharacterNow();
+}
+
+
+// 돌아가기: 기억해둔 레벨을 열고, 도착하면 기억해둔 위치에 세우도록 표시
+bool UDarkWolrdGameInstance::TravelToReturnPoint()
+{
+	if (ReturnLevelPath.IsEmpty()) return false;
+
+	bPlaceAtReturnPointOnArrival = true;
+	UGameplayStatics::OpenLevel(this, FName(*ReturnLevelPath));
+	return true;
+}
+
+
+// 도착 후: 담아둔 상태를 적용하고, 돌아온 레벨이면 기억해둔 위치(입구 포털 앞)에 세움
+void UDarkWolrdGameInstance::RestorePlayerAfterTravel(ACharacter* PlayerCharacter)
+{
+	if (!PlayerCharacter) return;
+
+	if (PendingTravelSnapshot)
+	{
+		ApplySaveDataToPlayer(PendingTravelSnapshot, PlayerCharacter);
+		PendingTravelSnapshot = nullptr;
+	}
+
+	if (bPlaceAtReturnPointOnArrival && GetCurrentLevelPath() == ReturnLevelPath)
+	{
+		PlayerCharacter->SetActorTransform(ReturnTransform, false, nullptr, ETeleportType::TeleportPhysics);
+		if (AController* Controller = PlayerCharacter->GetController())
+		{
+			Controller->SetControlRotation(ReturnTransform.Rotator());
+		}
+	}
+	bPlaceAtReturnPointOnArrival = false;
 }
 
 

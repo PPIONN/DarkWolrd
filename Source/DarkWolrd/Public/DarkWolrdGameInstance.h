@@ -9,6 +9,7 @@
 class UDarkWolrdSaveGame;
 class UCharacterStatComponent;
 class UMonsterCompanionComponent;
+class ACharacter;
 
 // UDarkWolrdGameInstance: 캐릭터 세이브/자동저장을 관리하는 게임 인스턴스.
 // 레벨 전환과 무관하게 게임 실행 내내 살아있어서, 자동저장 타이머를 여기서 돌린다.
@@ -62,11 +63,42 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void SaveActiveCharacterNow();
 
+	// BuildSaveDataFromCharacter: 플레이어 캐릭터의 스탯·몬스터 카드 상태를 세이브 데이터 객체로 만듦 (디스크에 쓰지는 않음)
+	UDarkWolrdSaveGame* BuildSaveDataFromCharacter(ACharacter* PlayerCharacter, const FString& SlotName) const;
+
+	// ─── 레벨 이동 (던전 입장/귀환) ───────────────────────────────────────
+	// 레벨을 옮기면 플레이어 캐릭터가 새로 만들어지므로, 떠나기 직전 상태를 메모리에 담아뒀다가 도착한 레벨에서 그대로 복원함
+
+	// PrepareLevelTravel: 떠나기 직전 호출. 플레이어 상태를 담아두고, bSetReturnPoint면 "돌아올 위치"(지금 레벨 + ReturnTransform)도 기억
+	UFUNCTION(BlueprintCallable, Category = "Travel")
+	void PrepareLevelTravel(ACharacter* PlayerCharacter, bool bSetReturnPoint, const FTransform& ReturnTransform);
+
+	// TravelToReturnPoint: 기억해둔 "돌아올 레벨"을 열고, 도착하면 기억해둔 위치에 세움. 돌아올 곳이 없으면 false
+	UFUNCTION(BlueprintCallable, Category = "Travel")
+	bool TravelToReturnPoint();
+
+	// RestorePlayerAfterTravel: 도착한 레벨에서 플레이어가 생길 때(Rabbit::BeginPlay) 호출. 담아둔 상태와 위치를 적용하고 비움
+	void RestorePlayerAfterTravel(ACharacter* PlayerCharacter);
+
+	// GetCurrentLevelPath: 지금 레벨의 경로 ("/Game/Maps/World" 형태, 에디터 PIE 접두어 제거)
+	FString GetCurrentLevelPath() const;
+
 protected:
 	virtual void Init() override;
 	virtual void Shutdown() override;
 
 private:
+	// PendingTravelSnapshot: 레벨 이동 중 넘겨줄 플레이어 상태 (도착 후 적용하면 비움)
+	UPROPERTY()
+	UDarkWolrdSaveGame* PendingTravelSnapshot = nullptr;
+
+	// ReturnLevelPath / ReturnTransform: 던전에서 나올 때 돌아갈 레벨과 위치 (입구 포털 앞)
+	FString ReturnLevelPath;
+	FTransform ReturnTransform;
+
+	// bPlaceAtReturnPointOnArrival: 다음에 도착하는 레벨이 ReturnLevelPath면 ReturnTransform 위치에 세울지
+	bool bPlaceAtReturnPointOnArrival = false;
+
 	FTimerHandle AutoSaveTimerHandle;
 
 	void StartAutoSaveTimer();
