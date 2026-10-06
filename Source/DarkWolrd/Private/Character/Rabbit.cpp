@@ -10,6 +10,8 @@
 #include "Stats/CharacterStatComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
 #include "Monster/BaseMonster.h"
+#include "Monster/FieldBossSpawner.h"
+#include "EngineUtils.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/Blueprint.h"
 #include "Engine/Engine.h"
@@ -694,4 +696,23 @@ void ARabbit::Respawn()
 	}
 
 	bIsDead = false;
+}
+
+
+// 디버그: 레벨의 모든 필드보스 스포너에서 즉시 보스 소환
+void ARabbit::DebugSpawnFieldBoss()
+{
+	int32 SpawnerCount = 0;
+	for (TActorIterator<AFieldBossSpawner> It(GetWorld()); It; ++It)
+	{
+		++SpawnerCount;
+		if (!It->SpawnBossNow())
+		{
+			ShowSummonDebugMessage(FString::Printf(TEXT("%s: 보스 소환 실패 (BossClass 확인)"), *It->GetName()), FColor::Red);
+		}
+	}
+	if (SpawnerCount == 0)
+	{
+		ShowSummonDebugMessage(TEXT("DebugSpawnFieldBoss: 레벨에 FieldBossSpawner가 없음"), FColor::Red);
+	}
 }

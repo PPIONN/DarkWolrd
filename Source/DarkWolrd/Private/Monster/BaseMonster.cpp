@@ -5,6 +5,7 @@
 #include "Summon/SummonAIComponent.h"
 #include "AI/WildMonsterAIComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
+#include "Stats/CharacterStatComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Animation/AnimSequence.h"
@@ -49,6 +50,26 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 
 	// 저주 상태면 실제로 받는 피해량 자체를 증폭시킴 (모든 공격자·모든 대미지 소스에 공통 적용)
 	ActualDamage *= CurseDamageAmplifyMultiplier;
+
+	// 처치 보상 받을 플레이어 기록: 투사체면 쏜 쪽, 소환수면 그 주인, 스탯을 가진 캐릭터(플레이어)면 본인
+	if (AActor* Attacker = DamageCauser)
+	{
+		if (!Attacker->IsA<APawn>() && Attacker->GetInstigator())
+		{
+			Attacker = Attacker->GetInstigator();
+		}
+		if (const ABaseMonster* AttackerMonster = Cast<ABaseMonster>(Attacker))
+		{
+			if (AttackerMonster->bIsPlayerSummon && AttackerMonster->SummonAIComponent && AttackerMonster->SummonAIComponent->GetOwnerPlayer())
+			{
+				LastRewardPlayer = AttackerMonster->SummonAIComponent->GetOwnerPlayer();
+			}
+		}
+		else if (Attacker->FindComponentByClass<UCharacterStatComponent>())
+		{
+			LastRewardPlayer = Attacker;
+		}
+	}
 
 	CurrentHP -= ActualDamage;
 
@@ -119,6 +140,7 @@ void ABaseMonster::Die()
 	if (!bIsPlayerSummon)
 	{
 		TryDropMonsterCard();
+		GrantKillRewards();
 	}
 	else if (SummonAIComponent)
 	{
@@ -136,6 +158,8 @@ void ABaseMonster::Die()
 	{
 		WildAIComponent->StopWildAI();
 	}
+
+	OnMonsterDied.Broadcast(this);
 
 	if (!DeathAnimation)
 	{
@@ -167,10 +191,22 @@ float ABaseMonster::GetMaxHP() const
 	return (BaseMaxHP + (Level - 1) * HPPerLevel) * SummonPowerMultiplier;
 }
 
-// 공격력: 1레벨 기준값 + 레벨업 보너스. 소환수는 카드 중첩 등록에 따른 배율이 추가로 곱해짐
+// 공격력: 1레벨 기준값 + 레벨업 보너스. 소환수는 카드 중첩 등록 배율, 보스는 페이즈 강화 배율이 추가로 곱해짐
 float ABaseMonster::GetAttackPower() const
 {
-	return (BaseAttackPower + (Level - 1) * AttackPowerPerLevel) * SummonPowerMultiplier;
+	return (BaseAttackPower + (Level - 1) * AttackPowerPerLevel) * SummonPowerMultiplier * AttackPowerBuffMultiplier;
+}
+
+
+// 처치 보상: 마지막으로 때린 플레이어(또는 소환수의 주인)에게 경험치와 돈 지급
+void ABaseMonster::GrantKillRewards()
+{
+	AActor* RewardPlayer = LastRewardPlayer.Get();
+	UCharacterStatComponent* PlayerStat = RewardPlayer ? RewardPlayer->FindComponentByClass<UCharacterStatComponent>() : nullptr;
+	if (!PlayerStat) return;
+
+	PlayerStat->AddExperience(FMath::RoundToInt(RewardEXP));
+	PlayerStat->AddMoney(GetMoneyDropAmount());
 }
 
 // 플레이어에게 주는 피해량 계산: (플레이어 최대 HP × 기본 비율) + 몬스터 공격력 - (플레이어 방어력 × 0.5), 최소 1

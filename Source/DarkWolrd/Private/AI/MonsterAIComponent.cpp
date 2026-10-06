@@ -9,6 +9,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/DamageEvents.h"
 #include "Engine/OverlapResult.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
 #include "TimerManager.h"
 
 UMonsterAIComponent::UMonsterAIComponent()
@@ -116,7 +118,7 @@ void UMonsterAIComponent::EngageTarget(AActor* Target)
 		{
 			LastAttackTime = Now;
 			const ABaseMonster* SelfMonster = GetOwnerMonster();
-			StartAttack(Target, 1.f, 0.f,
+			StartAttack(Target, 1.f, 0.f, ESkillAreaCenter::Target, nullptr,
 				SelfMonster ? SelfMonster->BasicAttackMontage : nullptr,
 				SelfMonster ? SelfMonster->BasicAttackHitDelay : 0.f);
 		}
@@ -134,9 +136,10 @@ bool UMonsterAIComponent::TryUseSkill(AActor* Target, float Distance)
 	const ABaseMonster* SelfMonster = GetOwnerMonster();
 	if (!SelfMonster) return false;
 
+	// 보스 페이즈 등으로 스킬이 추가되면 기존 스킬의 쿨타임은 그대로 두고 새 스킬만 바로 사용 가능 상태로 늘림
 	if (SkillReadyTimes.Num() != SelfMonster->ActiveSkills.Num())
 	{
-		SkillReadyTimes.Init(0.f, SelfMonster->ActiveSkills.Num());
+		SkillReadyTimes.SetNumZeroed(SelfMonster->ActiveSkills.Num());
 	}
 
 	const float Now = GetWorld()->GetTimeSeconds();
@@ -152,15 +155,17 @@ bool UMonsterAIComponent::TryUseSkill(AActor* Target, float Distance)
 			AICon->StopMovement();
 		}
 		FaceTarget(Target);
-		StartAttack(Target, Skill.DamageMultiplier, Skill.AreaRadius, Skill.Montage, Skill.HitDelay);
+		StartAttack(Target, Skill.DamageMultiplier, Skill.AreaRadius, Skill.AreaCenter, Skill.TelegraphVFX, Skill.Montage, Skill.HitDelay);
 		return true;
 	}
 	return false;
 }
 
 
-// 공격 시작: 몽타주를 재생하고 동작이 끝날 때까지 다음 행동을 막음. 피해는 HitDelay 뒤 타격 시점에 들어감
-void UMonsterAIComponent::StartAttack(AActor* Target, float DamageMultiplier, float AreaRadius, UAnimMontage* Montage, float HitDelay)
+// 공격 시작: 몽타주를 재생하고 동작이 끝날 때까지 다음 행동을 막음. 피해는 HitDelay 뒤 타격 시점에 들어감.
+// 범위 중심이 "시전 순간 위치"나 "자기 주변"이면 지금 위치를 고정해두고 예고 이펙트를 띄워서, 그 사이 빠져나가면 피할 수 있게 함
+void UMonsterAIComponent::StartAttack(AActor* Target, float DamageMultiplier, float AreaRadius, ESkillAreaCenter AreaCenter,
+	UNiagaraSystem* TelegraphVFX, UAnimMontage* Montage, float HitDelay)
 {
 	float ActionDuration = HitDelay;
 	if (Montage)
@@ -172,41 +177,81 @@ void UMonsterAIComponent::StartAttack(AActor* Target, float DamageMultiplier, fl
 	}
 	NextActionTime = GetWorld()->GetTimeSeconds() + ActionDuration;
 
+	const bool bUseFixedCenter = AreaRadius > 0.f && AreaCenter != ESkillAreaCenter::Target;
+	const FVector FixedCenter = (AreaCenter == ESkillAreaCenter::Self) ? GetOwner()->GetActorLocation() : Target->GetActorLocation();
+
+	if (TelegraphVFX && AreaRadius > 0.f && HitDelay > 0.f)
+	{
+		SpawnTelegraph(TelegraphVFX, bUseFixedCenter ? FixedCenter : Target->GetActorLocation(), AreaRadius, HitDelay);
+	}
+
 	if (HitDelay <= 0.f)
 	{
-		ApplyAttackDamage(Target, DamageMultiplier, AreaRadius);
+		ApplyAttackDamage(Target, DamageMultiplier, AreaRadius, bUseFixedCenter, FixedCenter);
 		return;
 	}
 
-	// 타격 시점 전에 대상이 사라지거나 AI가 꺼지면(사망·소환 해제) 피해를 주지 않음
+	// 타격 시점 전에 AI가 꺼지면(사망·소환 해제) 피해를 주지 않음.
+	// 위치가 고정된 범위 공격은 처음 노린 대상이 사라져도 그 자리에 그대로 떨어짐
 	TWeakObjectPtr<AActor> WeakTarget(Target);
 	FTimerHandle HitTimerHandle;
 	GetWorld()->GetTimerManager().SetTimer(HitTimerHandle, FTimerDelegate::CreateWeakLambda(this,
-		[this, WeakTarget, DamageMultiplier, AreaRadius]()
+		[this, WeakTarget, DamageMultiplier, AreaRadius, bUseFixedCenter, FixedCenter]()
 		{
-			if (bIsActive && WeakTarget.IsValid())
+			if (bIsActive && (bUseFixedCenter || WeakTarget.IsValid()))
 			{
-				ApplyAttackDamage(WeakTarget.Get(), DamageMultiplier, AreaRadius);
+				ApplyAttackDamage(WeakTarget.Get(), DamageMultiplier, AreaRadius, bUseFixedCenter, FixedCenter);
 			}
 		}), HitDelay, false);
 }
 
 
-// 피해 적용: AreaRadius가 0이면 대상 하나만, 아니면 대상 주변 반경 안의 적대 진영 전부
-void UMonsterAIComponent::ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AreaRadius)
+// 예고 이펙트: 범위 중심에서 바로 아래 바닥을 찾아 그 위에 띄우고, 타격 순간에 지움
+void UMonsterAIComponent::SpawnTelegraph(UNiagaraSystem* TelegraphVFX, const FVector& Center, float AreaRadius, float Duration)
 {
-	if (!IsValid(Target)) return;
+	FVector GroundLocation = Center;
+	FHitResult GroundHit;
+	if (GetWorld()->LineTraceSingleByObjectType(GroundHit, Center, Center - FVector(0.f, 0.f, 1000.f),
+		FCollisionObjectQueryParams(ECC_WorldStatic)))
+	{
+		GroundLocation = GroundHit.ImpactPoint + FVector(0.f, 0.f, 2.f);
+	}
 
+	UNiagaraComponent* Telegraph = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), TelegraphVFX, GroundLocation,
+		FRotator::ZeroRotator, FVector(AreaRadius / 100.f), /*bAutoDestroy=*/true);
+	if (!Telegraph) return;
+
+	TWeakObjectPtr<UNiagaraComponent> WeakTelegraph(Telegraph);
+	FTimerHandle TelegraphTimerHandle;
+	GetWorld()->GetTimerManager().SetTimer(TelegraphTimerHandle, FTimerDelegate::CreateWeakLambda(this, [WeakTelegraph]()
+		{
+			if (WeakTelegraph.IsValid())
+			{
+				WeakTelegraph->DestroyComponent();
+			}
+		}), Duration, false);
+}
+
+
+// 피해 적용: AreaRadius가 0이면 대상 하나만, 아니면 범위 중심 반경 안의 적대 진영 전부
+void UMonsterAIComponent::ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AreaRadius, bool bUseFixedCenter, const FVector& FixedCenter)
+{
 	if (AreaRadius <= 0.f)
 	{
-		DamageTarget(Target, DamageMultiplier);
+		if (IsValid(Target))
+		{
+			DamageTarget(Target, DamageMultiplier);
+		}
 		return;
 	}
+	if (!bUseFixedCenter && !IsValid(Target)) return;
+
+	const FVector Center = bUseFixedCenter ? FixedCenter : Target->GetActorLocation();
 
 	TArray<FOverlapResult> Overlaps;
 	FCollisionQueryParams QueryParams;
 	QueryParams.AddIgnoredActor(GetOwner());
-	GetWorld()->OverlapMultiByObjectType(Overlaps, Target->GetActorLocation(), FQuat::Identity,
+	GetWorld()->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity,
 		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(AreaRadius), QueryParams);
 
 	TSet<AActor*> AlreadyHit;
@@ -258,6 +303,31 @@ void UMonsterAIComponent::FaceTarget(AActor* Target)
 	{
 		GetOwner()->SetActorRotation(ToTarget.Rotation());
 	}
+}
+
+
+void UMonsterAIComponent::LockActions(float Duration)
+{
+	NextActionTime = FMath::Max(NextActionTime, GetWorld()->GetTimeSeconds() + Duration);
+
+	if (AAIController* AICon = GetAIController())
+	{
+		AICon->StopMovement();
+	}
+}
+
+
+void UMonsterAIComponent::ScaleBaseMoveSpeed(float Factor)
+{
+	ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+	if (!OwnerChar || Factor <= 0.f) return;
+
+	if (DefaultMaxWalkSpeed <= 0.f)
+	{
+		DefaultMaxWalkSpeed = OwnerChar->GetCharacterMovement()->MaxWalkSpeed;
+	}
+	DefaultMaxWalkSpeed *= Factor;
+	OwnerChar->GetCharacterMovement()->MaxWalkSpeed = DefaultMaxWalkSpeed * CurrentSpeedMultiplier;
 }
 
 

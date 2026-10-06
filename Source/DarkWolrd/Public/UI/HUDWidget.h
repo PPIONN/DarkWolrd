@@ -8,6 +8,7 @@
 
 class UProgressBar;
 class UTextBlock;
+class UWidget;
 class UCharacterStatComponent;
 class UInteractionComponent;
 
@@ -29,7 +30,30 @@ public:
 	void SetInteractionComponent(UInteractionComponent* InInteractionComponent);
 
 protected:
+	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	// ─── 화면 알림 ("필드보스가 나타났습니다!" 등) ───────────────────────────────────────
+	// AnnouncementText: 이 이름의 TextBlock을 화면 위쪽 가운데쯤 배치하면 알림이 여기에 표시됨.
+	// 배치하지 않으면 알림은 화면 왼쪽 위 디버그 글씨로 대신 나옴
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	UTextBlock* AnnouncementText;
+
+	// ─── 필드보스 HP바 (보스 가까이 가면 표시) ───────────────────────────────────────
+	// BossPanel: 보스 이름과 HP바를 묶은 패널(Overlay/VerticalBox 등). 보스가 없으면 통째로 숨김
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	UWidget* BossPanel;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	UTextBlock* BossNameText;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	UProgressBar* BossHPBar;
+
+	// HandleAnnouncement: UGameAnnouncementSubsystem에서 알림이 오면 AnnouncementText에 표시
+	UFUNCTION()
+	void HandleAnnouncement(const FText& Message, float Duration);
 
 	// HPBar / MPBar: 위젯 블루프린트에 이 이름 그대로 ProgressBar를 배치하면 자동 연결됨 (없어도 에러 없음)
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -57,4 +81,10 @@ private:
 	// BoundInteractionComponent: 상호작용 가능 여부를 읽어올 대상
 	UPROPERTY()
 	TWeakObjectPtr<UInteractionComponent> BoundInteractionComponent;
+
+	// UpdateBossPanel: 플레이어와 가장 가까운(HUDShowDistance 안의) 살아있는 필드보스를 찾아 이름·HP 표시
+	void UpdateBossPanel();
+
+	// AnnouncementHideTime: 현재 알림을 숨길 시각 (월드 시간)
+	float AnnouncementHideTime = 0.f;
 };

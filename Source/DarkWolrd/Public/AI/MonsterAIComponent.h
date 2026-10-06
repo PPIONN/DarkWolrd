@@ -4,11 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Summon/SummonTypes.h"
 #include "MonsterAIComponent.generated.h"
 
 class ABaseMonster;
 class AAIController;
 class UAnimMontage;
+class UNiagaraSystem;
 
 // UMonsterAIComponent: 몬스터 AI의 공통 부모.
 // 판단 루프(DecisionInterval마다 TickDecision), 대상과 싸우는 방법(쿨타임 돌아온 스킬 → 평타 → 다가가기),
@@ -43,6 +45,12 @@ public:
 	// GetDistanceToTarget: 두 몸체 가장자리 사이의 수평 거리 (AttackRange, 스킬 Range 판정에 쓰는 값)
 	float GetDistanceToTarget(const AActor* Target) const;
 
+	// LockActions: Duration초 동안 새 공격/스킬을 시작하지 않고 멈춰 있음 (보스 페이즈 전환 연출 등)
+	void LockActions(float Duration);
+
+	// ScaleBaseMoveSpeed: 원래 이동속도 자체를 Factor배로 바꿈 (보스 페이즈 강화 등). 따라잡기/순찰 배율은 그 위에 곱해짐
+	void ScaleBaseMoveSpeed(float Factor);
+
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -74,11 +82,16 @@ private:
 	// TryUseSkill: 쿨타임이 돌아왔고 사거리 안인 첫 번째 액티브 스킬을 사용. 사용했으면 true
 	bool TryUseSkill(AActor* Target, float Distance);
 
-	// StartAttack: 몽타주를 재생하고 HitDelay 뒤에 피해를 줌. 평타와 스킬이 공통으로 사용
-	void StartAttack(AActor* Target, float DamageMultiplier, float AreaRadius, UAnimMontage* Montage, float HitDelay);
+	// StartAttack: 몽타주를 재생하고(범위 스킬이면 예고 이펙트도 띄우고) HitDelay 뒤에 피해를 줌. 평타와 스킬이 공통으로 사용
+	void StartAttack(AActor* Target, float DamageMultiplier, float AreaRadius, ESkillAreaCenter AreaCenter,
+		UNiagaraSystem* TelegraphVFX, UAnimMontage* Montage, float HitDelay);
 
-	// ApplyAttackDamage: 대상 하나(AreaRadius 0) 또는 대상 주변 반경 안의 적대 진영 전부에게 피해
-	void ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AreaRadius);
+	// ApplyAttackDamage: 대상 하나(AreaRadius 0) 또는 범위 중심 주변의 적대 진영 전부에게 피해.
+	// bUseFixedCenter면 FixedCenter를 중심으로, 아니면 그 순간 대상의 위치를 중심으로 함
+	void ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AreaRadius, bool bUseFixedCenter, const FVector& FixedCenter);
+
+	// SpawnTelegraph: 범위 중심 바닥에 예고 이펙트를 띄우고 Duration 뒤에 지움
+	void SpawnTelegraph(UNiagaraSystem* TelegraphVFX, const FVector& Center, float AreaRadius, float Duration);
 
 	// DamageTarget: 적대 대상 하나에게 피해. 플레이어에게는 몬스터→플레이어 공식, 몬스터에게는 공격력 × 배율
 	void DamageTarget(AActor* Target, float DamageMultiplier);

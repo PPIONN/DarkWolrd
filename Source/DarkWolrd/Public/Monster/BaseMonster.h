@@ -27,6 +27,11 @@ enum class EMonsterGrade : uint8
 	Legendary	// 최종 보스
 };
 
+class ABaseMonster;
+
+// FOnMonsterDied: 몬스터가 쓰러지는 순간 브로드캐스트 (필드보스 스포너, 던전 웨이브 집계 등에서 구독)
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMonsterDied, ABaseMonster*, DeadMonster);
+
 // ABaseMonster: 모든 몬스터의 부모(베이스) 클래스
 // 새 몬스터를 만들 때 이 클래스를 상속받아 사용하면 됨
 // 'A'는 Actor(게임 세상에 존재하는 물체)를 의미
@@ -97,9 +102,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
 	float BaseDamagePercentOfPlayerMaxHP = 0.05f;
 
-	// RewardEXP: 몬스터를 처치했을 때 플레이어가 얻는 경험치
+	// RewardEXP: 몬스터를 처치했을 때 플레이어가 얻는 경험치 (소환수가 처치해도 플레이어가 받고, 그 소환수 종족도 같은 양을 받음)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
 	float RewardEXP = 20.f;
+
+	// AttackPowerBuffMultiplier: 일시적인 공격력 배율 (보스 페이즈 강화 등). 기본 1
+	UPROPERTY(BlueprintReadWrite, Category = "Monster|Stats")
+	float AttackPowerBuffMultiplier = 1.f;
+
+	// OnMonsterDied: 쓰러지는 순간 브로드캐스트
+	UPROPERTY(BlueprintAssignable, Category = "Monster|Stats")
+	FOnMonsterDied OnMonsterDied;
 
 	// CardDropChance: 처치 시 이 몬스터의 카드를 드랍할 확률 (0~1). 모든 등급에서 드랍 가능
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
@@ -222,6 +235,12 @@ public:
 private:
 	// ClearCurse: 저주 지속시간이 끝났을 때 호출되어 배율을 원래대로 되돌리고 VFX를 제거
 	void ClearCurse();
+
+	// GrantKillRewards: 마지막으로 이 몬스터를 때린 플레이어(소환수가 때렸으면 그 주인)에게 경험치와 돈을 지급
+	void GrantKillRewards();
+
+	// LastRewardPlayer: 처치 보상을 받을 플레이어. 플레이어 본인이나 플레이어 소환수에게 맞을 때마다 갱신
+	TWeakObjectPtr<AActor> LastRewardPlayer;
 
 	FTimerHandle CurseTimerHandle;
 

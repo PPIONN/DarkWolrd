@@ -167,6 +167,10 @@ public:
 	UFUNCTION(Exec)
 	void DebugSummonStatus();
 
+	// DebugSpawnFieldBoss → 레벨에 놓인 필드보스 스포너 전부에서 기다리지 않고 바로 보스를 소환
+	UFUNCTION(Exec)
+	void DebugSpawnFieldBoss();
+
 	// Landed: 캐릭터가 낙하 중 땅에 닿을 때 엔진이 자동으로 호출. 대시로 인한 낙하였으면 여기서 착지 몽타주를 재생함
 	virtual void Landed(const FHitResult& Hit) override;
 
