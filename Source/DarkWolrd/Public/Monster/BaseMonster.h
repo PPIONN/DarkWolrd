@@ -6,11 +6,13 @@
 // ACharacter: 이동, 점프, 충돌 등 기본 기능이 내장된 캐릭터 기본 클래스
 #include "GameFramework/Character.h"
 #include "Summon/SummonTypes.h"
+#include "Combat/CombatFaction.h"
 #include "BaseMonster.generated.h"
 
 class UNiagaraSystem;
 class UNiagaraComponent;
 class USummonAIComponent;
+class UWildMonsterAIComponent;
 class UAnimMontage;
 class UAnimSequence;
 
@@ -59,6 +61,11 @@ public:
 	// Grade: 드랍 아이템 등급을 결정하는 몬스터 등급 (전투 스탯과는 무관)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
 	EMonsterGrade Grade = EMonsterGrade::Basic;
+
+	// Faction: 전투 진영. 야생 몬스터는 Wild, 플레이어 소환수는 소환될 때 Player로 바뀜, 몬스터대전 상대는 ArenaOpponent.
+	// 서로 다른 진영끼리만 싸움
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
+	ECombatFaction Faction = ECombatFaction::Wild;
 
 	// BaseMaxHP: 1레벨 기준 기본 최대 HP (임시로 플레이어 Rabbit과 동일한 수치)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
@@ -129,6 +136,10 @@ public:
 	// bIsPlayerSummon이 true로 Activate()되기 전까지는 아무 동작도 하지 않음
 	UPROPERTY(VisibleAnywhere, Category = "Monster|Summon")
 	USummonAIComponent* SummonAIComponent;
+
+	// WildAIComponent: 야생 몬스터 AI (감지·추격·귀환·순찰). 게임 시작 시 자동으로 켜지고, 소환수로 스폰된 개체에서는 꺼져 있음
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Monster|AI")
+	UWildMonsterAIComponent* WildAIComponent;
 
 	// ─── 소환수 자동 전투 / 파트너 패시브 (몬스터 BP마다 설정) ───────────────────────────────────────
 

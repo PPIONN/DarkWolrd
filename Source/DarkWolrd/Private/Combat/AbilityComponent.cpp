@@ -331,13 +331,13 @@ FHitResult UAbilityComponent::PerformAimTrace(FVector& OutTraceEnd) const
 }
 
 
-// 락온 대상 유효성 확인: 존재하고, 살아있는 몬스터인지
+// 락온 대상 유효성 확인: 살아있는 몬스터이고, 내 소환수가 아닌 적대 진영인지
 bool UAbilityComponent::IsValidLockOnTarget(AActor* Target) const
 {
 	if (!IsValid(Target)) return false;
 
 	const ABaseMonster* Monster = Cast<ABaseMonster>(Target);
-	return Monster && Monster->IsAlive();
+	return Monster && Monster->IsAlive() && CombatFaction::AreHostile(GetOwner(), Monster);
 }
 
 

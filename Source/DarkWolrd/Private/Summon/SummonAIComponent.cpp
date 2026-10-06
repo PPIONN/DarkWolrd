@@ -1,7 +1,9 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Summon/SummonAIComponent.h"
+#include "AI/WildMonsterAIComponent.h"
 #include "Monster/BaseMonster.h"
+#include "Combat/CombatFaction.h"
 #include "Companion/MonsterCompanionComponent.h"
 #include "Combat/AbilityComponent.h"
 #include "Character/Rabbit.h"
@@ -9,11 +11,6 @@
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "GameFramework/Character.h"
-#include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/Actor.h"
-#include "Engine/DamageEvents.h"
-#include "Engine/OverlapResult.h"
-#include "TimerManager.h"
 
 USummonAIComponent::USummonAIComponent()
 {
@@ -21,74 +18,44 @@ USummonAIComponent::USummonAIComponent()
 }
 
 
-void USummonAIComponent::BeginPlay()
-{
-	Super::BeginPlay();
-}
-
-
-// 액터가 사라질 때 판단 루프와 예약된 타격(HitDelay) 타이머를 전부 정리
-void USummonAIComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearAllTimersForObject(this);
-	}
-	Super::EndPlay(EndPlayReason);
-}
-
-
-// 소환 활성화: 판단 루프를 DecisionInterval마다 반복 실행. 스킬은 소환 직후 전부 사용 가능한 상태로 시작
+// 소환 활성화: 야생 AI가 돌고 있었다면 끄고, 우선순위 정보를 비운 채 판단 루프를 시작
 void USummonAIComponent::ActivateSummonAI(AActor* InOwnerPlayer, int32 InFollowSlotIndex)
 {
+	if (ABaseMonster* SelfMonster = GetOwnerMonster())
+	{
+		if (SelfMonster->WildAIComponent)
+		{
+			SelfMonster->WildAIComponent->StopWildAI();
+		}
+	}
+
 	OwnerPlayer = InOwnerPlayer;
 	FollowSlotIndex = InFollowSlotIndex;
-	bIsActive = true;
 	SelfDefenseTarget = nullptr;
 	bSelfDefenseEngaged = false;
 	bForceGather = false;
-	NextActionTime = 0.f;
-
-	if (const ABaseMonster* SelfMonster = Cast<ABaseMonster>(GetOwner()))
-	{
-		SkillReadyTimes.Init(0.f, SelfMonster->ActiveSkills.Num());
-	}
-
-	if (const ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
-	{
-		DefaultMaxWalkSpeed = OwnerChar->GetCharacterMovement()->MaxWalkSpeed;
-	}
-	CurrentSpeedMultiplier = 1.f;
 	PlayerStillTime = 0.f;
 	bWandering = false;
 	bWanderWalking = false;
 
-	GetWorld()->GetTimerManager().SetTimer(DecisionTimerHandle, this, &USummonAIComponent::TickDecision, DecisionInterval, true);
+	StartDecisionLoop();
 }
 
 
 // 소환 해제: 모든 우선순위 정보를 지우고 판단 루프를 멈춤
 void USummonAIComponent::DeactivateSummonAI()
 {
-	ApplySpeedMultiplier(1.f);
-	bWandering = false;
+	StopDecisionLoop();
 
-	bIsActive = false;
 	OwnerPlayer = nullptr;
 	SelfDefenseTarget = nullptr;
 	bSelfDefenseEngaged = false;
 	bForceGather = false;
-
-	GetWorld()->GetTimerManager().ClearTimer(DecisionTimerHandle);
-
-	if (AAIController* AICon = GetAIController())
-	{
-		AICon->StopMovement();
-	}
+	bWandering = false;
 }
 
 
-// 공격받음 통보: 투사체가 때렸으면 그걸 쏜 쪽을 공격자로 봄. 플레이어 본인이나 다른 소환수는 적으로 취급하지 않음.
+// 공격받음 통보: 투사체가 때렸으면 그걸 쏜 쪽을 공격자로 봄. 적대 진영이 아니면(플레이어, 다른 소환수) 무시.
 // 이미 다른 적과 교전(우선순위 1) 중이면 무시. 아니면 새 공격자를 우선순위 3으로 등록하고,
 // 강제 모임 명령은 자기방어를 위해 해제함
 void USummonAIComponent::NotifyAttacked(AActor* Attacker)
@@ -99,11 +66,7 @@ void USummonAIComponent::NotifyAttacked(AActor* Attacker)
 	{
 		Attacker = Attacker->GetInstigator();
 	}
-	if (Attacker == OwnerPlayer) return;
-	if (const ABaseMonster* AttackerMonster = Cast<ABaseMonster>(Attacker))
-	{
-		if (AttackerMonster->bIsPlayerSummon) return;
-	}
+	if (!CombatFaction::AreHostile(GetOwner(), Attacker)) return;
 
 	if (bSelfDefenseEngaged && IsValid(SelfDefenseTarget)) return;
 
@@ -131,34 +94,13 @@ void USummonAIComponent::CommandAttackPlayerTarget()
 }
 
 
-AAIController* USummonAIComponent::GetAIController() const
-{
-	if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
-	{
-		return Cast<AAIController>(OwnerChar->GetController());
-	}
-	return nullptr;
-}
-
-
 // DecideTarget: 우선순위 규칙대로 지금 싸워야 할 대상을 고름
 AActor* USummonAIComponent::DecideTarget()
 {
-	// 자기방어 대상이 죽거나 무효화되면 등록 정보를 지우고 다음 후보로 넘어감
-	if (IsValid(SelfDefenseTarget))
-	{
-		const ABaseMonster* SelfDefenseMonster = Cast<ABaseMonster>(SelfDefenseTarget);
-		if (SelfDefenseMonster && !SelfDefenseMonster->IsAlive())
-		{
-			SelfDefenseTarget = nullptr;
-		}
-	}
-	else
+	// 자기방어 대상이 쓰러지거나 사라지면 등록 정보를 지우고 다음 후보로 넘어감
+	if (!CombatFaction::IsAlive(SelfDefenseTarget))
 	{
 		SelfDefenseTarget = nullptr;
-	}
-	if (!SelfDefenseTarget)
-	{
 		bSelfDefenseEngaged = false;
 	}
 
@@ -193,8 +135,7 @@ AActor* USummonAIComponent::DecideTarget()
 }
 
 
-// TickDecision: DecisionInterval마다 실행. 너무 멀면 순간이동, 대상이 없으면 따라다니거나(플레이어가 가만히 있으면) 배회하고,
-// 대상이 있으면 스킬 → 평타 순으로 시도하고 사거리 밖이면 다가감
+// TickDecision: 너무 멀면 순간이동, 대상이 없으면 따라다니거나(플레이어가 가만히 있으면) 배회, 대상이 있으면 싸움
 void USummonAIComponent::TickDecision()
 {
 	if (!bIsActive || !IsValid(GetOwner())) return;
@@ -228,34 +169,27 @@ void USummonAIComponent::TickDecision()
 		}
 		return;
 	}
+
 	bWandering = false;
-	ApplySpeedMultiplier(1.f);
+	EngageTarget(Target);
+}
 
-	// 평타/스킬 동작 중에는 새 행동을 시작하지 않음
-	const float Now = GetWorld()->GetTimeSeconds();
-	if (Now < NextActionTime) return;
 
-	const float Distance = FVector::Dist(GetOwner()->GetActorLocation(), Target->GetActorLocation());
-
-	if (TryUseSkill(Target, Distance)) return;
-
-	if (Distance <= AttackRange)
+// 처치 보상: 몬스터를 쓰러뜨렸으면 소환주에게 이 종족의 경험치 지급을 요청하고, 자기방어 대상이었다면 정리
+void USummonAIComponent::OnTargetKilled(AActor* Victim, float VictimRewardEXP)
+{
+	if (VictimRewardEXP > 0.f && IsValid(OwnerPlayer))
 	{
-		AICon->StopMovement();
-		FaceTarget(Target);
-
-		if (Now - LastAttackTime >= AttackInterval)
+		if (UMonsterCompanionComponent* Companion = OwnerPlayer->FindComponentByClass<UMonsterCompanionComponent>())
 		{
-			LastAttackTime = Now;
-			const ABaseMonster* SelfMonster = Cast<ABaseMonster>(GetOwner());
-			StartAttack(Target, 1.f, 0.f,
-				SelfMonster ? SelfMonster->BasicAttackMontage : nullptr,
-				SelfMonster ? SelfMonster->BasicAttackHitDelay : 0.f);
+			Companion->AddSummonEXP(GetOwner()->GetClass(), VictimRewardEXP);
 		}
 	}
-	else
+
+	if (SelfDefenseTarget == Victim)
 	{
-		AICon->MoveToActor(Target, AttackRange * 0.8f);
+		SelfDefenseTarget = nullptr;
+		bSelfDefenseEngaged = false;
 	}
 }
 
@@ -288,14 +222,25 @@ FVector USummonAIComponent::GetFollowSlotLocation() const
 }
 
 
-void USummonAIComponent::ApplySpeedMultiplier(float Multiplier)
+// 순간이동: 자기 자리로 먼저 시도하고, 막혀 있으면 플레이어 위치 근처로 (TeleportTo가 겹치지 않는 자리를 찾아줌)
+void USummonAIComponent::TeleportToPlayer()
 {
-	if (FMath::IsNearlyEqual(Multiplier, CurrentSpeedMultiplier)) return;
+	if (!IsValid(OwnerPlayer)) return;
 
-	if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
+	SelfDefenseTarget = nullptr;
+	bSelfDefenseEngaged = false;
+	bWandering = false;
+	ApplySpeedMultiplier(1.f);
+
+	if (AAIController* AICon = GetAIController())
 	{
-		CurrentSpeedMultiplier = Multiplier;
-		OwnerChar->GetCharacterMovement()->MaxWalkSpeed = DefaultMaxWalkSpeed * Multiplier;
+		AICon->StopMovement();
+	}
+
+	const FRotator FacingRotation(0.f, OwnerPlayer->GetActorRotation().Yaw, 0.f);
+	if (!GetOwner()->TeleportTo(GetFollowSlotLocation(), FacingRotation))
+	{
+		GetOwner()->TeleportTo(OwnerPlayer->GetActorLocation(), FacingRotation);
 	}
 }
 
@@ -357,165 +302,4 @@ void USummonAIComponent::UpdateWander(AAIController* AICon)
 
 	// 적당한 지점을 못 찾았으면 잠깐 뒤에 다시 시도
 	NextWanderTime = Now + 1.f;
-}
-
-
-// 순간이동: 자기 자리로 먼저 시도하고, 막혀 있으면 플레이어 위치 근처로 (TeleportTo가 겹치지 않는 자리를 찾아줌)
-void USummonAIComponent::TeleportToPlayer()
-{
-	if (!IsValid(OwnerPlayer)) return;
-
-	SelfDefenseTarget = nullptr;
-	bSelfDefenseEngaged = false;
-	bWandering = false;
-	ApplySpeedMultiplier(1.f);
-
-	if (AAIController* AICon = GetAIController())
-	{
-		AICon->StopMovement();
-	}
-
-	const FRotator FacingRotation(0.f, OwnerPlayer->GetActorRotation().Yaw, 0.f);
-	if (!GetOwner()->TeleportTo(GetFollowSlotLocation(), FacingRotation))
-	{
-		GetOwner()->TeleportTo(OwnerPlayer->GetActorLocation(), FacingRotation);
-	}
-}
-
-
-// 스킬 사용: 배열 앞쪽부터 보고, 쿨타임이 돌아왔고 사거리 안인 첫 스킬을 씀
-bool USummonAIComponent::TryUseSkill(AActor* Target, float Distance)
-{
-	const ABaseMonster* SelfMonster = Cast<ABaseMonster>(GetOwner());
-	if (!SelfMonster) return false;
-
-	if (SkillReadyTimes.Num() != SelfMonster->ActiveSkills.Num())
-	{
-		SkillReadyTimes.Init(0.f, SelfMonster->ActiveSkills.Num());
-	}
-
-	const float Now = GetWorld()->GetTimeSeconds();
-	for (int32 SkillIndex = 0; SkillIndex < SelfMonster->ActiveSkills.Num(); ++SkillIndex)
-	{
-		const FSummonActiveSkill& Skill = SelfMonster->ActiveSkills[SkillIndex];
-		if (Distance > Skill.Range || Now < SkillReadyTimes[SkillIndex]) continue;
-
-		SkillReadyTimes[SkillIndex] = Now + Skill.Cooldown;
-
-		if (AAIController* AICon = GetAIController())
-		{
-			AICon->StopMovement();
-		}
-		FaceTarget(Target);
-		StartAttack(Target, Skill.DamageMultiplier, Skill.AreaRadius, Skill.Montage, Skill.HitDelay);
-		return true;
-	}
-	return false;
-}
-
-
-// 공격 시작: 몽타주를 재생하고 동작이 끝날 때까지 다음 행동을 막음. 피해는 HitDelay 뒤 타격 시점에 들어감
-void USummonAIComponent::StartAttack(AActor* Target, float DamageMultiplier, float AreaRadius, UAnimMontage* Montage, float HitDelay)
-{
-	float ActionDuration = HitDelay;
-	if (Montage)
-	{
-		if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
-		{
-			ActionDuration = FMath::Max(ActionDuration, OwnerChar->PlayAnimMontage(Montage));
-		}
-	}
-	NextActionTime = GetWorld()->GetTimeSeconds() + ActionDuration;
-
-	if (HitDelay <= 0.f)
-	{
-		ApplyAttackDamage(Target, DamageMultiplier, AreaRadius);
-		return;
-	}
-
-	// 타격 시점 전에 대상이 사라지거나 소환이 해제되면 피해를 주지 않음
-	TWeakObjectPtr<AActor> WeakTarget(Target);
-	FTimerHandle HitTimerHandle;
-	GetWorld()->GetTimerManager().SetTimer(HitTimerHandle, FTimerDelegate::CreateWeakLambda(this,
-		[this, WeakTarget, DamageMultiplier, AreaRadius]()
-		{
-			if (bIsActive && WeakTarget.IsValid())
-			{
-				ApplyAttackDamage(WeakTarget.Get(), DamageMultiplier, AreaRadius);
-			}
-		}), HitDelay, false);
-}
-
-
-// 피해 적용: AreaRadius가 0이면 대상 하나만, 아니면 대상 주변 반경 안의 야생 몬스터 전부
-void USummonAIComponent::ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AreaRadius)
-{
-	const ABaseMonster* SelfMonster = Cast<ABaseMonster>(GetOwner());
-	if (!SelfMonster || !IsValid(Target)) return;
-
-	const float Damage = SelfMonster->GetAttackPower() * DamageMultiplier;
-
-	if (AreaRadius <= 0.f)
-	{
-		DamageEnemy(Cast<ABaseMonster>(Target), Damage);
-		return;
-	}
-
-	TArray<FOverlapResult> Overlaps;
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(GetOwner());
-	GetWorld()->OverlapMultiByObjectType(Overlaps, Target->GetActorLocation(), FQuat::Identity,
-		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(AreaRadius), QueryParams);
-
-	TSet<ABaseMonster*> AlreadyHit;
-	for (const FOverlapResult& Overlap : Overlaps)
-	{
-		ABaseMonster* Enemy = Cast<ABaseMonster>(Overlap.GetActor());
-		if (Enemy && !Enemy->bIsPlayerSummon && !AlreadyHit.Contains(Enemy))
-		{
-			AlreadyHit.Add(Enemy);
-			DamageEnemy(Enemy, Damage);
-		}
-	}
-}
-
-
-// 적 하나에게 피해. Die()가 즉시 Destroy()를 호출하므로, 피해를 주기 전에 필요한 정보를 미리 캡처해둠
-void USummonAIComponent::DamageEnemy(ABaseMonster* Enemy, float Damage)
-{
-	ABaseMonster* SelfMonster = Cast<ABaseMonster>(GetOwner());
-	if (!SelfMonster || !IsValid(Enemy) || !Enemy->IsAlive() || Enemy->bIsPlayerSummon) return;
-
-	const float RewardEXP = Enemy->RewardEXP;
-	const TSubclassOf<ABaseMonster> SelfClass = SelfMonster->GetClass();
-
-	Enemy->TakeDamage(Damage, FDamageEvent(), GetAIController(), GetOwner());
-
-	if (!Enemy->IsAlive())
-	{
-		if (IsValid(OwnerPlayer))
-		{
-			if (UMonsterCompanionComponent* Companion = OwnerPlayer->FindComponentByClass<UMonsterCompanionComponent>())
-			{
-				Companion->AddSummonEXP(SelfClass, RewardEXP);
-			}
-		}
-
-		if (SelfDefenseTarget == Enemy)
-		{
-			SelfDefenseTarget = nullptr;
-			bSelfDefenseEngaged = false;
-		}
-	}
-}
-
-
-void USummonAIComponent::FaceTarget(AActor* Target)
-{
-	FVector ToTarget = Target->GetActorLocation() - GetOwner()->GetActorLocation();
-	ToTarget.Z = 0.f;
-	if (!ToTarget.IsNearlyZero())
-	{
-		GetOwner()->SetActorRotation(ToTarget.Rotation());
-	}
 }

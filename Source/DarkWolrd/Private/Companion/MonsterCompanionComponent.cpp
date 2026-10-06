@@ -180,21 +180,24 @@ void UMonsterCompanionComponent::SpawnSummons()
 		const FVector SpawnOffset = FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.f) * 200.f;
 		const FVector SpawnLocation = OwnerLocation + SpawnOffset;
 
-		FActorSpawnParameters SpawnParams;
-		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-
-		ABaseMonster* NewSummon = World->SpawnActor<ABaseMonster>(MonsterClass, SpawnLocation, OwnerActor->GetActorRotation(), SpawnParams);
+		// 스폰을 잠시 미뤄두고(Deferred) 소환수 정보를 먼저 채운 뒤 마무리함.
+		// 이렇게 해야 BeginPlay 시점에 이미 소환수라서 야생 AI가 켜지지 않고, HP도 레벨·등급이 반영된 값으로 채워짐
+		const FTransform SpawnTransform(OwnerActor->GetActorRotation(), SpawnLocation);
+		ABaseMonster* NewSummon = World->SpawnActorDeferred<ABaseMonster>(MonsterClass, SpawnTransform, nullptr, nullptr,
+			ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
 		if (!NewSummon) continue;
 
-		// 코드로 스폰한 Pawn은 AutoPossessAI 기본값(PlacedInWorld) 때문에 AI 컨트롤러가 안 붙음 → 직접 붙여줌
+		NewSummon->bIsPlayerSummon = true;
+		NewSummon->Faction = ECombatFaction::Player;
+		NewSummon->Level = Entry->Level;
+		NewSummon->SummonPowerMultiplier = Entry->GetUpgradeMultiplier();
+		NewSummon->FinishSpawning(SpawnTransform);
+
+		// 몬스터 BP에서 AutoPossessAI를 바꿔뒀어도 AI 컨트롤러가 꼭 붙도록 함
 		if (!NewSummon->GetController())
 		{
 			NewSummon->SpawnDefaultController();
 		}
-
-		NewSummon->bIsPlayerSummon = true;
-		NewSummon->Level = Entry->Level;
-		NewSummon->SummonPowerMultiplier = Entry->GetUpgradeMultiplier();
 		NewSummon->CurrentHP = NewSummon->GetMaxHP();
 
 		if (NewSummon->SummonAIComponent)

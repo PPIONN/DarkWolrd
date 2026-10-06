@@ -58,6 +58,9 @@ void ARabbit::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 쓰러졌을 때 돌아올 부활 지점 = 처음 등장한 위치
+	RespawnTransform = GetActorTransform();
+
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
@@ -624,4 +627,71 @@ void ARabbit::DebugSummonStatus()
 	{
 		ShowSummonDebugMessage(Lines[i]);
 	}
+}
+
+
+// 피격: 받은 피해를 스탯 HP에 적용하고, 0이 되면 사망 처리. 이미 쓰러진 상태면 무시
+float ARabbit::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	const float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
+	if (bIsDead || !StatComponent || ActualDamage <= 0.f) return 0.f;
+
+	StatComponent->ApplyDamage(ActualDamage);
+
+	if (StatComponent->CurrentHP <= 0.f)
+	{
+		HandleDeath();
+	}
+	return ActualDamage;
+}
+
+
+// 사망: 입력·이동을 막고, 소환수를 거두고, 락온을 풀고, RespawnDelay 뒤 부활 예약
+void ARabbit::HandleDeath()
+{
+	if (bIsDead) return;
+	bIsDead = true;
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		DisableInput(PC);
+	}
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->DisableMovement();
+
+	if (CompanionComponent)
+	{
+		CompanionComponent->DespawnAllSummons();
+	}
+	if (AbilityComponent)
+	{
+		AbilityComponent->LockedTarget = nullptr;
+	}
+
+	OnDied.Broadcast();
+
+	GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ARabbit::Respawn, RespawnDelay, false);
+}
+
+
+// 부활: 처음 등장한 위치로 돌아가 HP/MP를 가득 채우고 다시 조작 가능하게 함
+void ARabbit::Respawn()
+{
+	SetActorTransform(RespawnTransform, false, nullptr, ETeleportType::TeleportPhysics);
+
+	if (StatComponent)
+	{
+		StatComponent->CurrentHP = StatComponent->GetMaxHP();
+		StatComponent->CurrentMP = StatComponent->GetMaxMP();
+	}
+
+	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetControlRotation(RespawnTransform.Rotator());
+		EnableInput(PC);
+	}
+
+	bIsDead = false;
 }

@@ -23,6 +23,9 @@ class UHUDWidget;
 class UInteractionComponent;
 class UDialogueWidget;
 
+// FOnRabbitDied: 토끼가 쓰러졌을 때 브로드캐스트 (사망 UI 표시 등에 사용)
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRabbitDied);
+
 // UCLASS: 이 클래스가 언리얼 엔진의 리플렉션 시스템에 등록되도록 하는 매크로
 // ARabbit: 플레이어가 직접 조종하는 토끼 캐릭터. 'A'는 Actor(게임 세상에 존재하는 물체)를 의미
 UCLASS()
@@ -35,9 +38,40 @@ public:
 	// 생성자: 캐릭터가 처음 만들어질 때 실행. 카메라·스프링암 부착 및 이동 방식 설정
 	ARabbit();
 
+	// ─── 피격 / 사망 / 부활 ───────────────────────────────────────
+
+	// TakeDamage: 몬스터 등에게 받은 피해를 스탯 컴포넌트의 HP에 적용. HP가 0이 되면 사망 처리
+	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+		class AController* EventInstigator, AActor* DamageCauser) override;
+
+	// IsDead: 쓰러져서 부활을 기다리는 중인지
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	bool IsDead() const { return bIsDead; }
+
+	// RespawnDelay: 쓰러진 뒤 부활하기까지의 시간(초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	float RespawnDelay = 3.f;
+
+	// OnDied: 쓰러질 때 브로드캐스트 (블루프린트에서 사망 화면 등을 띄우는 용도)
+	UPROPERTY(BlueprintAssignable, Category = "Combat")
+	FOnRabbitDied OnDied;
+
 protected:
 	// BeginPlay: 캐릭터가 게임 세상에 처음 등장할 때 한 번만 호출되는 함수
 	virtual void BeginPlay() override;
+
+	// HandleDeath: HP가 0이 됐을 때. 입력·이동을 막고 소환수를 거둔 뒤 RespawnDelay 뒤 부활 예약
+	void HandleDeath();
+
+	// Respawn: 처음 등장한 위치에서 HP/MP를 가득 채운 채 부활
+	void Respawn();
+
+	bool bIsDead = false;
+
+	// RespawnTransform: 부활 위치 (BeginPlay 시점의 위치와 방향)
+	FTransform RespawnTransform;
+
+	FTimerHandle RespawnTimerHandle;
 
 	// Move: WASD 또는 조이스틱 입력을 받아 캐릭터를 앞뒤좌우로 이동시키는 함수
 	void Move(const FInputActionValue& Value);

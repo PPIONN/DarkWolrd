@@ -3,6 +3,7 @@
 #include "Monster/BaseMonster.h"
 #include "Item/MonsterCardPickup.h"
 #include "Summon/SummonAIComponent.h"
+#include "AI/WildMonsterAIComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -17,6 +18,10 @@ ABaseMonster::ABaseMonster()
 	PrimaryActorTick.bCanEverTick = true;
 
 	SummonAIComponent = CreateDefaultSubobject<USummonAIComponent>(TEXT("SummonAIComponent"));
+	WildAIComponent = CreateDefaultSubobject<UWildMonsterAIComponent>(TEXT("WildAIComponent"));
+
+	// 레벨에 배치한 몬스터뿐 아니라 코드로 스폰한 몬스터(필드보스, 던전 웨이브, 소환수)도 AI 컨트롤러가 붙도록 함
+	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 }
 
 // 게임 시작 시 한 번 호출: 현재 체력을 최대 체력으로 초기화
@@ -47,10 +52,17 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 
 	CurrentHP -= ActualDamage;
 
-	// 소환수라면 공격받았음을 자기방어 AI에 통보 (야생 몬스터는 컴포넌트가 비활성 상태라 아무 일도 안 함)
-	if (bIsPlayerSummon && SummonAIComponent && DamageCauser)
+	// 공격받았음을 AI에 통보: 소환수는 자기방어 우선순위, 야생 몬스터는 반격 대상 지정
+	if (DamageCauser)
 	{
-		SummonAIComponent->NotifyAttacked(DamageCauser);
+		if (bIsPlayerSummon && SummonAIComponent)
+		{
+			SummonAIComponent->NotifyAttacked(DamageCauser);
+		}
+		else if (WildAIComponent)
+		{
+			WildAIComponent->NotifyAttacked(DamageCauser);
+		}
 	}
 
 	if (CurrentHP <= 0.f)
@@ -118,6 +130,11 @@ void ABaseMonster::Die()
 			}
 		}
 		SummonAIComponent->DeactivateSummonAI();
+	}
+
+	if (WildAIComponent)
+	{
+		WildAIComponent->StopWildAI();
 	}
 
 	if (!DeathAnimation)
