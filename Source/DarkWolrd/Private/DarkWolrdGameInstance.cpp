@@ -4,6 +4,8 @@
 #include "SaveGame/DarkWolrdSaveGame.h"
 #include "SaveGame/CharacterManifestSaveGame.h"
 #include "Stats/CharacterStatComponent.h"
+#include "Companion/MonsterCompanionComponent.h"
+#include "Monster/BaseMonster.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Character.h"
@@ -102,6 +104,34 @@ void UDarkWolrdGameInstance::ApplySaveDataToStatComponent(const UDarkWolrdSaveGa
 }
 
 
+// 몬스터 카드 데이터 복원: 클래스가 비어 있는 항목(몬스터 BP가 삭제/이동돼 불러오지 못한 것)은 버림
+void UDarkWolrdGameInstance::ApplySaveDataToCompanionComponent(const UDarkWolrdSaveGame* SaveData, UMonsterCompanionComponent* CompanionComponent) const
+{
+	if (!SaveData || !CompanionComponent) return;
+
+	CompanionComponent->DespawnAllSummons();
+
+	CompanionComponent->HeldCards = SaveData->HeldCards.FilterByPredicate(
+		[](const FMonsterCardEntry& Card) { return Card.MonsterClass != nullptr; });
+
+	CompanionComponent->RegisteredMonsters = SaveData->RegisteredMonsters.FilterByPredicate(
+		[](const FRegisteredMonsterEntry& Entry) { return Entry.MonsterClass != nullptr; });
+
+	CompanionComponent->SelectedSummonSlots = SaveData->SelectedSummonSlots.FilterByPredicate(
+		[](const TSubclassOf<ABaseMonster>& MonsterClass) { return MonsterClass != nullptr; });
+}
+
+
+// 플레이어 전체 복원: 스탯과 몬스터 카드를 한 번에
+void UDarkWolrdGameInstance::ApplySaveDataToPlayer(const UDarkWolrdSaveGame* SaveData, AActor* PlayerActor) const
+{
+	if (!SaveData || !PlayerActor) return;
+
+	ApplySaveDataToStatComponent(SaveData, PlayerActor->FindComponentByClass<UCharacterStatComponent>());
+	ApplySaveDataToCompanionComponent(SaveData, PlayerActor->FindComponentByClass<UMonsterCompanionComponent>());
+}
+
+
 // 활성 캐릭터 지정: 이후 자동저장 타이머가 이 슬롯을 대상으로 반복 저장함
 void UDarkWolrdGameInstance::SetActiveCharacter(const FString& SlotName)
 {
@@ -136,6 +166,13 @@ void UDarkWolrdGameInstance::SaveActiveCharacterNow()
 	SaveData->Vitality = StatComponent->Vitality;
 	SaveData->BaseDefense = StatComponent->BaseDefense;
 	SaveData->Money = StatComponent->Money;
+
+	if (const UMonsterCompanionComponent* CompanionComponent = PlayerCharacter->FindComponentByClass<UMonsterCompanionComponent>())
+	{
+		SaveData->HeldCards = CompanionComponent->HeldCards;
+		SaveData->RegisteredMonsters = CompanionComponent->RegisteredMonsters;
+		SaveData->SelectedSummonSlots = CompanionComponent->SelectedSummonSlots;
+	}
 
 	UGameplayStatics::SaveGameToSlot(SaveData, ActiveCharacterSlotName, SaveUserIndex);
 }

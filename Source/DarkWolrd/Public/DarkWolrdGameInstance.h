@@ -8,6 +8,7 @@
 
 class UDarkWolrdSaveGame;
 class UCharacterStatComponent;
+class UMonsterCompanionComponent;
 
 // UDarkWolrdGameInstance: 캐릭터 세이브/자동저장을 관리하는 게임 인스턴스.
 // 레벨 전환과 무관하게 게임 실행 내내 살아있어서, 자동저장 타이머를 여기서 돌린다.
@@ -44,6 +45,14 @@ public:
 	// ApplySaveDataToStatComponent: 불러온 세이브 데이터를 스탯 컴포넌트에 그대로 복원
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void ApplySaveDataToStatComponent(const UDarkWolrdSaveGame* SaveData, UCharacterStatComponent* StatComponent) const;
+
+	// ApplySaveDataToCompanionComponent: 몬스터 카드 보유 목록·도감·소환 슬롯을 복원. 클래스를 못 찾는 항목(삭제/이동된 몬스터 BP)은 건너뜀
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	void ApplySaveDataToCompanionComponent(const UDarkWolrdSaveGame* SaveData, UMonsterCompanionComponent* CompanionComponent) const;
+
+	// ApplySaveDataToPlayer: 플레이어 액터에 붙은 스탯·몬스터 카드 컴포넌트를 찾아 한 번에 복원 (위 두 함수를 함께 호출)
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	void ApplySaveDataToPlayer(const UDarkWolrdSaveGame* SaveData, AActor* PlayerActor) const;
 
 	// SetActiveCharacter: 이 슬롯을 현재 플레이 중인 캐릭터로 지정하고 자동저장 타이머를 시작
 	UFUNCTION(BlueprintCallable, Category = "Save")

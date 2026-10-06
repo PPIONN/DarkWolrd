@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/SaveGame.h"
+#include "Item/MonsterCardData.h"
 #include "DarkWolrdSaveGame.generated.h"
 
 // UDarkWolrdSaveGame: 캐릭터 한 명의 세이브 데이터.
@@ -52,4 +53,19 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int64 Money = 0;
+
+	// ─── 몬스터 카드 / 소환 (MonsterCompanionComponent 대응) ───────────────────────────────────────
+	// 몬스터 종족은 블루프린트 클래스 경로로 저장되므로, 몬스터 BP를 옮기거나 이름을 바꾸면 그 항목은 불러올 때 빠짐
+
+	// HeldCards: 주웠지만 아직 등록하지 않은 카드
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FMonsterCardEntry> HeldCards;
+
+	// RegisteredMonsters: 등록된 도감 (종족별 등급·레벨·경험치 포함)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FRegisteredMonsterEntry> RegisteredMonsters;
+
+	// SelectedSummonSlots: 소환할 종족을 직접 고른 목록 (비어 있으면 도감 앞에서부터 소환)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<TSubclassOf<ABaseMonster>> SelectedSummonSlots;
 };
