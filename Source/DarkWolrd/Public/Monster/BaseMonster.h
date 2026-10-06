@@ -5,7 +5,24 @@
 #include "CoreMinimal.h"
 // ACharacter: 이동, 점프, 충돌 등 기본 기능이 내장된 캐릭터 기본 클래스
 #include "GameFramework/Character.h"
+#include "Summon/SummonTypes.h"
 #include "BaseMonster.generated.h"
+
+class UNiagaraSystem;
+class UNiagaraComponent;
+class USummonAIComponent;
+class UAnimMontage;
+
+// EMonsterGrade: 몬스터 등급. 전투 스탯과는 무관하며, 이 몬스터가 드랍할 수 있는
+// 장비/무기/악세서리의 최고 등급만 결정한다 (장비 등급 체계와 동일).
+UENUM(BlueprintType)
+enum class EMonsterGrade : uint8
+{
+	Basic,		// 일반 몬스터
+	Rare,		// 보스 몬스터
+	Unique,		// 히든 몬스터
+	Legendary	// 최종 보스
+};
 
 // ABaseMonster: 모든 몬스터의 부모(베이스) 클래스
 // 새 몬스터를 만들 때 이 클래스를 상속받아 사용하면 됨
@@ -38,23 +55,129 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
 	int32 Level = 1;
 
-	// MaxHP: 몬스터의 최대 체력
+	// Grade: 드랍 아이템 등급을 결정하는 몬스터 등급 (전투 스탯과는 무관)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
-	float MaxHP = 100.f;
+	EMonsterGrade Grade = EMonsterGrade::Basic;
+
+	// BaseMaxHP: 1레벨 기준 기본 최대 HP (임시로 플레이어 Rabbit과 동일한 수치)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
+	float BaseMaxHP = 50.f;
+
+	// HPPerLevel: 레벨업 1회당 늘어나는 HP (임시로 플레이어 Rabbit과 동일한 수치)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
+	float HPPerLevel = 10.f;
 
 	// CurrentHP: 몬스터의 현재 체력. 0이 되면 사망 처리
 	UPROPERTY(BlueprintReadOnly, Category = "Monster|Stats")
 	float CurrentHP;
 
-	// AttackPower: 몬스터가 플레이어에게 주는 공격력
+	// BaseAttackPower: 1레벨 기준 기본 공격력 (임시로 플레이어 Rabbit의 기본 마력과 동일한 수치)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
-	float AttackPower = 10.f;
+	float BaseAttackPower = 5.f;
+
+	// AttackPowerPerLevel: 레벨업 1회당 늘어나는 공격력.
+	// 플레이어는 마력이 레벨업으로 늘지 않아 대응되는 수치가 없으므로, 임시로 HP 증가폭을 재사용함
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
+	float AttackPowerPerLevel = 10.f;
+
+	// Defense: 몬스터의 방어력
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
+	float Defense = 0.f;
+
+	// BaseDamagePercentOfPlayerMaxHP: 플레이어 공격 시 기준이 되는, 플레이어 최대 HP 대비 기본 피해 비율.
+	// 모든 몬스터 공통값이며(기본 5%), 몬스터 간 강함 차이는 AttackPower로 표현한다
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
+	float BaseDamagePercentOfPlayerMaxHP = 0.05f;
 
 	// RewardEXP: 몬스터를 처치했을 때 플레이어가 얻는 경험치
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Stats")
 	float RewardEXP = 20.f;
 
+	// CardDropChance: 처치 시 이 몬스터의 카드를 드랍할 확률 (0~1). 모든 등급에서 드랍 가능
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
+	float CardDropChance = 0.15f;
+
+	// ─── 소환수 상태 (플레이어가 소환한 개체일 때만 사용) ───────────────────────────────────────
+
+	// bIsPlayerSummon: 이 개체가 플레이어의 소환수인지. true가 되는 순간 SummonAIComponent가 활성화됨
+	UPROPERTY(BlueprintReadOnly, Category = "Monster|Summon")
+	bool bIsPlayerSummon = false;
+
+	// SummonPowerMultiplier: 소환수로 스폰될 때 카드 중첩 등록(등급)에 따라 적용되는 스탯 배율.
+	// 야생 몬스터는 항상 1(영향 없음)
+	UPROPERTY(BlueprintReadOnly, Category = "Monster|Summon")
+	float SummonPowerMultiplier = 1.f;
+
+	// SummonAIComponent: 소환수 반자율 전투 AI. 모든 몬스터가 기본으로 가지고 있지만
+	// bIsPlayerSummon이 true로 Activate()되기 전까지는 아무 동작도 하지 않음
+	UPROPERTY(VisibleAnywhere, Category = "Monster|Summon")
+	USummonAIComponent* SummonAIComponent;
+
+	// ─── 소환수 자동 전투 / 파트너 패시브 (몬스터 BP마다 설정) ───────────────────────────────────────
+
+	// BasicAttackMontage: 소환수로 싸울 때 평타 몽타주 (없으면 애니메이션 없이 피해만 들어감)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|Combat")
+	UAnimMontage* BasicAttackMontage = nullptr;
+
+	// BasicAttackHitDelay: 평타 시작 후 실제로 피해가 들어가는 시점(초). 몽타주의 타격 프레임에 맞춰 조절
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|Combat")
+	float BasicAttackHitDelay = 0.3f;
+
+	// ActiveSkills: 소환수로 싸울 때 쿨타임마다 자동으로 쓰는 스킬. 배열 앞쪽일수록 우선 (팰월드처럼 3개 정도 권장)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|Combat")
+	TArray<FSummonActiveSkill> ActiveSkills;
+
+	// PartnerPassiveType / PartnerPassiveValue: 이 몬스터가 소환되어 있는 동안 플레이어가 받는 패시브.
+	// 카드 중첩 등록 배율(GetUpgradeMultiplier)만큼 강해지고, 소환 해제·사망 시 사라짐
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|Passive")
+	ESummonPassiveType PartnerPassiveType = ESummonPassiveType::None;
+
+	// PartnerPassiveValue: HP/MP/방어력/재생은 고정 수치(+20 등), 공격속도/이동속도는 비율(0.1 = +10%)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|Passive")
+	float PartnerPassiveValue = 0.f;
+
+	// ─── 저주 상태 ("저주하는 자" 직업 스킬이 거는 디버프) ───────────────────────────────────────
+	// 저주에 걸리면 몸 전체에 보라색 VFX가 씌워지고, 걸려있는 동안 받는 모든 대미지가 증폭된다.
+	// 중첩되지 않으며, 이미 걸린 상태에서 다시 걸리면 배율은 최신 값으로 덮어쓰고 지속시간만 새로고침한다.
+
+	// CurseVFX: 저주 상태 동안 몸에 씌워지는 보라색 나이아가라 이펙트 (에디터에서 지정)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Curse")
+	UNiagaraSystem* CurseVFX;
+
+	// CurseDamageAmplifyMultiplier: 저주 상태일 때 받는 모든 대미지에 곱해지는 배율. 저주가 아니면 1
+	UPROPERTY(BlueprintReadOnly, Category = "Monster|Curse")
+	float CurseDamageAmplifyMultiplier = 1.f;
+
+	// IsCursed: 현재 저주 상태인지
+	UFUNCTION(BlueprintCallable, Category = "Monster|Curse")
+	bool IsCursed() const { return CurseDamageAmplifyMultiplier > 1.f; }
+
+	// ApplyCurse: 저주를 겁니다(또는 갱신). AmplifyPercent = 대미지 증폭 비율(30 = +30%), Duration = 지속시간(초).
+	// 이미 걸려있어도 중첩되지 않고 배율은 최신 값으로, 지속시간은 새로고침됨
+	UFUNCTION(BlueprintCallable, Category = "Monster|Curse")
+	void ApplyCurse(float AmplifyPercent, float Duration);
+
 	// ─── 몬스터 기본 함수 ───────────────────────────────────────
+
+	// GetMaxHP: 현재 레벨을 반영한 최대 HP
+	UFUNCTION(BlueprintCallable, Category = "Monster|Stats")
+	float GetMaxHP() const;
+
+	// GetAttackPower: 현재 레벨을 반영한 공격력
+	UFUNCTION(BlueprintCallable, Category = "Monster|Stats")
+	float GetAttackPower() const;
+
+	// CalculatePlayerDamage: 플레이어의 최대 HP와 방어력을 받아 이 몬스터가 플레이어에게 주는 피해량을 계산.
+	// 공식: (플레이어 최대 HP × BaseDamagePercentOfPlayerMaxHP) + 몬스터 공격력 - (플레이어 방어력 × 0.5), 최소 1
+	UFUNCTION(BlueprintCallable, Category = "Monster|Stats")
+	float CalculatePlayerDamage(float PlayerMaxHP, float PlayerDefense) const;
+
+	// GetMoneyDropAmount: 처치 시 드랍할 돈을 계산. 10 + (레벨×5) + 0~20 랜덤
+	UFUNCTION(BlueprintCallable, Category = "Monster|Stats")
+	int32 GetMoneyDropAmount() const;
+
+	// TryDropMonsterCard: CardDropChance 확률로 이 몬스터의 카드를 죽은 위치에 스폰
+	void TryDropMonsterCard();
 
 	// TakeDamage: 몬스터가 데미지를 받을 때 호출되는 함수. 반환값은 실제로 받은 데미지
 	// 언리얼 엔진 기본 데미지 시스템을 오버라이드(재정의)함
@@ -67,4 +190,13 @@ public:
 	// IsAlive: 몬스터가 살아있는지 확인하는 함수. true면 살아있음
 	UFUNCTION(BlueprintCallable, Category = "Monster|Stats")
 	bool IsAlive() const;
+
+private:
+	// ClearCurse: 저주 지속시간이 끝났을 때 호출되어 배율을 원래대로 되돌리고 VFX를 제거
+	void ClearCurse();
+
+	FTimerHandle CurseTimerHandle;
+
+	UPROPERTY()
+	UNiagaraComponent* CurseVFXComponent = nullptr;
 };

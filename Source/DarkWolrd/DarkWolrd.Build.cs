@@ -10,7 +10,10 @@ public class DarkWolrd : ModuleRules
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" , "UMG" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		// Niagara: 저주 상태 VFX(BaseMonster::CurseVFX) 스폰에 사용. .cpp에서만 완전한 타입이 필요해 Private로 충분함
+		// AIModule: 소환수 AI(USummonAIComponent)가 AAIController::MoveToActor 등을 사용
+		// NavigationSystem: 소환수 배회 지점을 내비메시 위의 갈 수 있는 곳에서 고를 때 사용
+		PrivateDependencyModuleNames.AddRange(new string[] { "Niagara", "AIModule", "NavigationSystem" });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
