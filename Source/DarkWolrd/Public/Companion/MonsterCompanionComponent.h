@@ -39,6 +39,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Monster Card")
 	bool RegisterCard(int32 HeldCardIndex);
 
+	// RegisterAllHeldCards: 보유 카드를 전부 등록함 (카드 목록 UI가 생기기 전 임시 등록 수단 겸 테스트용). 등록한 장 수를 반환
+	UFUNCTION(BlueprintCallable, Category = "Monster Card")
+	int32 RegisterAllHeldCards();
+
 	// FindRegisteredEntry: 등록된 도감에서 해당 종족 항목을 찾음 (없으면 nullptr)
 	FRegisteredMonsterEntry* FindRegisteredEntry(TSubclassOf<ABaseMonster> MonsterClass);
 

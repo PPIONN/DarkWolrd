@@ -42,6 +42,18 @@ bool UMonsterCompanionComponent::RegisterCard(int32 HeldCardIndex)
 }
 
 
+// 보유 카드 전부 등록: 항상 맨 앞 카드를 등록하면 목록이 앞으로 당겨지므로 빌 때까지 0번을 반복
+int32 UMonsterCompanionComponent::RegisterAllHeldCards()
+{
+	int32 RegisteredCount = 0;
+	while (HeldCards.Num() > 0 && RegisterCard(0))
+	{
+		++RegisteredCount;
+	}
+	return RegisteredCount;
+}
+
+
 // 등록된 도감에서 해당 종족 항목 검색
 FRegisteredMonsterEntry* UMonsterCompanionComponent::FindRegisteredEntry(TSubclassOf<ABaseMonster> MonsterClass)
 {

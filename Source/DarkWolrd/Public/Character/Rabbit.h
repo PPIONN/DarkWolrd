@@ -120,6 +120,19 @@ public:
 	UFUNCTION(Exec)
 	void DebugSpendMP(float Amount = 20.f);
 
+	// ─── 소환 시스템 테스트용 콘솔 명령 ───────────────────────────────────────
+	// DebugGiveCard BP_Bat 3 → 이름이 BP_Bat인 몬스터 블루프린트 카드를 3장 보유 목록에 추가 (에디터 PIE 전용)
+	UFUNCTION(Exec)
+	void DebugGiveCard(const FString& MonsterBlueprintName, int32 Count = 1);
+
+	// DebugRegisterAllCards → 보유 카드를 전부 도감에 등록 (신규 종족은 등록, 이미 있는 종족은 등급 +1)
+	UFUNCTION(Exec)
+	void DebugRegisterAllCards();
+
+	// DebugSummonStatus → 보유 카드 수, 도감(등급/레벨/경험치), 현재 소환수 HP를 화면에 출력
+	UFUNCTION(Exec)
+	void DebugSummonStatus();
+
 	// Landed: 캐릭터가 낙하 중 땅에 닿을 때 엔진이 자동으로 호출. 대시로 인한 낙하였으면 여기서 착지 몽타주를 재생함
 	virtual void Landed(const FHitResult& Hit) override;
 

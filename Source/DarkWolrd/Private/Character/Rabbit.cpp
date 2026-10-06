@@ -9,6 +9,10 @@
 #include "Combat/AbilityComponent.h"
 #include "Stats/CharacterStatComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
+#include "Monster/BaseMonster.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "Engine/Blueprint.h"
+#include "Engine/Engine.h"
 #include "UI/HUDWidget.h"
 #include "UI/DialogueWidget.h"
 #include "Interaction/InteractionComponent.h"
@@ -531,5 +535,93 @@ void ARabbit::DebugSpendMP(float Amount)
 	if (StatComponent)
 	{
 		StatComponent->SpendMP(Amount);
+	}
+}
+
+
+// 디버그 메시지를 화면 왼쪽 위에 띄움 (소환 테스트 명령 공용)
+static void ShowSummonDebugMessage(const FString& Message, const FColor& Color = FColor::Cyan)
+{
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 8.f, Color, Message);
+	}
+}
+
+
+// 디버그: 이름이 MonsterBlueprintName인 몬스터 블루프린트를 에셋 레지스트리에서 찾아 카드를 Count장 지급.
+// 블루프린트 에셋을 이름으로 찾는 방식이라 에디터(PIE)에서만 동작함
+void ARabbit::DebugGiveCard(const FString& MonsterBlueprintName, int32 Count)
+{
+	if (!CompanionComponent || Count <= 0) return;
+
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	TArray<FAssetData> BlueprintAssets;
+	AssetRegistry.GetAssetsByClass(UBlueprint::StaticClass()->GetClassPathName(), BlueprintAssets);
+
+	TSubclassOf<ABaseMonster> MonsterClass = nullptr;
+	for (const FAssetData& Asset : BlueprintAssets)
+	{
+		if (Asset.AssetName.ToString().Equals(MonsterBlueprintName, ESearchCase::IgnoreCase))
+		{
+			MonsterClass = LoadClass<ABaseMonster>(nullptr, *(Asset.GetObjectPathString() + TEXT("_C")));
+			if (MonsterClass) break;
+		}
+	}
+
+	if (!MonsterClass)
+	{
+		ShowSummonDebugMessage(FString::Printf(TEXT("DebugGiveCard: '%s' 이름의 몬스터 블루프린트(BaseMonster 자식)를 찾지 못함"), *MonsterBlueprintName), FColor::Red);
+		return;
+	}
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		FMonsterCardEntry Card;
+		Card.MonsterClass = MonsterClass;
+		CompanionComponent->AddCard(Card);
+	}
+	ShowSummonDebugMessage(FString::Printf(TEXT("카드 지급: %s ×%d (보유 %d장)"), *MonsterBlueprintName, Count, CompanionComponent->HeldCards.Num()));
+}
+
+
+// 디버그: 보유 카드 전부 등록
+void ARabbit::DebugRegisterAllCards()
+{
+	if (!CompanionComponent) return;
+
+	const int32 RegisteredCount = CompanionComponent->RegisterAllHeldCards();
+	ShowSummonDebugMessage(FString::Printf(TEXT("카드 %d장 등록 → 도감 %d종족"), RegisteredCount, CompanionComponent->RegisteredMonsters.Num()));
+}
+
+
+// 디버그: 소환 관련 상태를 화면에 출력 (AddOnScreenDebugMessage는 나중에 넣은 줄이 위에 표시되므로 역순으로 넣음)
+void ARabbit::DebugSummonStatus()
+{
+	if (!CompanionComponent) return;
+
+	TArray<FString> Lines;
+	Lines.Add(FString::Printf(TEXT("[소환 상태] 보유 카드 %d장 / 도감 %d종족 / 소환 중 %d마리"),
+		CompanionComponent->HeldCards.Num(), CompanionComponent->RegisteredMonsters.Num(), CompanionComponent->ActiveSummons.Num()));
+
+	for (const FRegisteredMonsterEntry& Entry : CompanionComponent->RegisteredMonsters)
+	{
+		Lines.Add(FString::Printf(TEXT("  도감: %s  등급+%d(×%.2f)  Lv.%d  EXP %d/%d"),
+			Entry.MonsterClass ? *Entry.MonsterClass->GetName() : TEXT("(없음)"),
+			Entry.UpgradeCount, Entry.GetUpgradeMultiplier(), Entry.Level, Entry.CurrentEXP, Entry.GetEXPToNextLevel()));
+	}
+
+	for (const ABaseMonster* Summon : CompanionComponent->ActiveSummons)
+	{
+		if (IsValid(Summon))
+		{
+			Lines.Add(FString::Printf(TEXT("  소환수: %s  HP %.0f/%.0f  공격력 %.1f"),
+				*Summon->GetClass()->GetName(), Summon->CurrentHP, Summon->GetMaxHP(), Summon->GetAttackPower()));
+		}
+	}
+
+	for (int32 i = Lines.Num() - 1; i >= 0; --i)
+	{
+		ShowSummonDebugMessage(Lines[i]);
 	}
 }
