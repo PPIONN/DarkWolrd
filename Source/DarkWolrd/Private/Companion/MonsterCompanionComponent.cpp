@@ -68,9 +68,25 @@ FRegisteredMonsterEntry* UMonsterCompanionComponent::FindRegisteredEntry(TSubcla
 // 패시브는 마지막에 한 번만 다시 계산함 (중간에 해제 상태로 계산하면 늘어났던 최대 HP가 줄면서 현재 HP가 깎임)
 void UMonsterCompanionComponent::Resummon()
 {
+	if (GetResummonCooldownRemaining() > 0.f) return;
+
 	DestroyActiveSummons();
 	SpawnSummons();
 	RefreshPartnerPassives();
+
+	// 소환할 종족이 없어 아무것도 안 나왔으면 쿨타임을 걸지 않음
+	if (ActiveSummons.Num() > 0)
+	{
+		LastResummonTime = GetWorld()->GetTimeSeconds();
+	}
+}
+
+
+float UMonsterCompanionComponent::GetResummonCooldownRemaining() const
+{
+	if (ResummonCooldown <= 0.f || !GetWorld()) return 0.f;
+
+	return FMath::Max(0.f, LastResummonTime + ResummonCooldown - GetWorld()->GetTimeSeconds());
 }
 
 

@@ -65,6 +65,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Summon")
 	bool AreSummonsActive() const { return ActiveSummons.Num() > 0; }
 
+	// ResummonCooldown: 재소환한 뒤 다시 재소환할 수 있을 때까지의 시간(초). 0이면 제한 없음.
+	// Y 연타로 소환수 HP를 계속 채우는 걸 막고 싶을 때 올리면 됨
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon")
+	float ResummonCooldown = 0.f;
+
+	// GetResummonCooldownRemaining: 다시 재소환할 수 있을 때까지 남은 시간(초). 0이면 지금 가능 (UI 표시용)
+	UFUNCTION(BlueprintCallable, Category = "Summon")
+	float GetResummonCooldownRemaining() const;
+
 	// Resummon: Y 입력 처리. 지금 소환된 몬스터를 전부 취소하고, 도감에서 최대 MaxActiveSummons마리를
 	// 플레이어 주변에 HP가 가득 찬 새 개체로 바로 다시 소환함 (아무것도 소환 안 된 상태면 그냥 소환)
 	UFUNCTION(BlueprintCallable, Category = "Summon")
@@ -102,4 +111,7 @@ private:
 
 	// DestroyActiveSummons: 소환수 액터만 파괴함 (파트너 패시브 갱신은 호출하는 쪽에서 한 번만)
 	void DestroyActiveSummons();
+
+	// LastResummonTime: 마지막으로 실제 소환에 성공한 시각 (ResummonCooldown 계산용)
+	float LastResummonTime = -1000.f;
 };
