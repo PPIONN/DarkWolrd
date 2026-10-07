@@ -106,7 +106,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|LockOn")
 	float LockOnHeightOffset = 50.f;
 
-	// ToggleLockOn: 이미 락온 중이면 해제. 아니면 지금 화면 중앙이 조준한 대상을 확인해서 몬스터면 락온
+	// LockOnRange: 락온할 수 있는 최대 거리. 락온 중 대상이 이 거리의 1.5배보다 멀어지면 자동 해제
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|LockOn")
+	float LockOnRange = 2500.f;
+
+	// LockOnMaxAngle: 카메라 정면(화면 중앙)에서 이 각도 안에 있는 몬스터만 락온 후보 (정확히 조준하지 않아도 됨)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|LockOn")
+	float LockOnMaxAngle = 30.f;
+
+	// ToggleLockOn: 이미 락온 중이면 해제. 아니면 화면 중앙에 가장 가까운 적대 몬스터에게 락온
 	UFUNCTION(BlueprintCallable, Category = "Ability|LockOn")
 	void ToggleLockOn();
 
@@ -202,6 +210,10 @@ private:
 
 	// IsValidLockOnTarget: 해당 액터가 락온 가능한 대상인지(살아있는 몬스터인지) 확인
 	bool IsValidLockOnTarget(AActor* Target) const;
+
+	// FindLockOnTarget: 화면 중앙 트레이스에 몬스터가 맞으면 그 대상, 아니면 LockOnRange·LockOnMaxAngle 안에서
+	// 벽에 가려지지 않은 적대 몬스터 중 화면 중앙에 가장 가까운 대상 (없으면 nullptr)
+	AActor* FindLockOnTarget() const;
 
 	EAbilityCastState CastState = EAbilityCastState::Idle;
 	FName ActiveAbilityID = NAME_None;

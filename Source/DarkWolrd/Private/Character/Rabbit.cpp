@@ -122,10 +122,22 @@ void ARabbit::Tick(float DeltaTime)
 
 	UpdateCameraAndFacing(DeltaTime);
 
-	// 머리 Look At 타겟: 카메라가 보는 방향으로 먼 지점을 계산해서 ABP에서 머리/목 본 컨트롤에 쓸 수 있게 함
+	// 머리 Look At 타겟: 평소에는 카메라가 보는 방향의 먼 지점.
+	// 탐험 모드로 달리는 중에는 몸이 달리는 방향을 보므로 고개도 정면(달리는 방향)을 보게 함.
+	// 두 방향 사이는 각도로 부드럽게 전환 (점을 직선으로 보간하면 몸을 관통하며 고개가 휙 돌 수 있음)
 	if (Camera)
 	{
-		HeadLookAtTarget = Camera->GetComponentLocation() + Camera->GetComponentRotation().Vector() * HeadLookAtDistance;
+		const bool bLookAhead = !IsFacingCamera() && GetVelocity().Size2D() > 10.f;
+		const FVector DesiredDir = bLookAhead ? GetActorForwardVector() : Camera->GetComponentRotation().Vector();
+		const FVector Origin = GetActorLocation();
+
+		FVector CurrentDir = (HeadLookAtTarget - Origin).GetSafeNormal();
+		if (CurrentDir.IsNearlyZero())
+		{
+			CurrentDir = DesiredDir;
+		}
+		const FVector LookDir = FMath::VInterpNormalRotationTo(CurrentDir, DesiredDir, DeltaTime, 360.f);
+		HeadLookAtTarget = Origin + LookDir * HeadLookAtDistance;
 	}
 }
 
@@ -178,10 +190,12 @@ void ARabbit::Move(const FInputActionValue& Value)
 	FVector2D MovementVector = Value.Get<FVector2D>();
 	if (!Controller) return;
 
-	// 입력 각도 계산: 0=정면, +90=오른쪽, -90=왼쪽, ±180=뒤. 입력이 없으면(atan2(0,0) 미정의) 마지막 값 유지
+	// 입력 각도 계산: 0=정면, +90=오른쪽, -90=왼쪽, ±180=뒤. 입력이 없으면(atan2(0,0) 미정의) 마지막 값 유지.
+	// 탐험 모드에서는 몸이 이동 방향으로 돌기 때문에 애니메이션 입장에선 항상 "정면으로 달리기"(0).
+	// 카메라 방향 모드(조준·락온·공격 직후)에서만 실제 입력 각도를 넘겨 옆걸음/뒷걸음이 나오게 함
 	if (!MovementVector.IsNearlyZero())
 	{
-		MoveInputAngle = FMath::RadiansToDegrees(FMath::Atan2(MovementVector.X, MovementVector.Y));
+		MoveInputAngle = IsFacingCamera() ? FMath::RadiansToDegrees(FMath::Atan2(MovementVector.X, MovementVector.Y)) : 0.f;
 	}
 
 	// 더블탭 전진 감지: 전진 입력이 "막 시작된 순간"(상승 엣지)이 DoubleTapWindow 이내에 두 번째로 발생하면 대시
@@ -813,6 +827,15 @@ void ARabbit::UpdateCameraAndFacing(float DeltaTime)
 {
 	CombatFacingTimeLeft = FMath::Max(0.f, CombatFacingTimeLeft - DeltaTime);
 	const bool bFaceCamera = IsFacingCamera();
+
+	// 락온 중: 카메라가 대상 쪽으로 돌아감. 몸은 카메라 방향을 보므로 결과적으로 대상을 바라봄
+	if (Controller && LockOnCameraSpeed > 0.f && AbilityComponent && AbilityComponent->IsLockedOn())
+	{
+		const FVector ViewLocation = Camera ? Camera->GetComponentLocation() : GetActorLocation();
+		const FRotator ToTarget = (AbilityComponent->LockedTarget->GetActorLocation() - ViewLocation).Rotation();
+		const FRotator Desired(FMath::Clamp(ToTarget.Pitch + LockOnCameraPitchOffset, -45.f, 20.f), ToTarget.Yaw, 0.f);
+		Controller->SetControlRotation(FMath::RInterpTo(Controller->GetControlRotation(), Desired, DeltaTime, LockOnCameraSpeed));
+	}
 
 	// 탐험: 달리는 방향으로 회전 / 카메라 방향 모드: 컨트롤러(카메라) 방향으로 회전.
 	// 둘 다 RotationRate 속도로 부드럽게 돌도록 bUseControllerRotationYaw(즉시 회전)는 쓰지 않음

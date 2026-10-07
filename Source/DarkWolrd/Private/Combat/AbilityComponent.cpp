@@ -8,6 +8,7 @@
 #include "Stats/CharacterStatComponent.h"
 #include "Monster/BaseMonster.h"
 #include "TimerManager.h"
+#include "EngineUtils.h"
 
 UAbilityComponent::UAbilityComponent()
 {
@@ -341,26 +342,71 @@ bool UAbilityComponent::IsValidLockOnTarget(AActor* Target) const
 }
 
 
-// 락온 토글: 이미 락온 중이면 해제, 아니면 화면 중앙이 지금 조준한 대상이 몬스터면 락온
+// 락온 토글: 락온 중이면 해제, 아니면 화면 중앙에 가장 가까운 적대 몬스터에게 락온.
+// (대상이 이미 죽었거나 멀어진 상태면 "락온 중"이 아니므로 해제 대신 새 대상을 찾음)
 void UAbilityComponent::ToggleLockOn()
 {
-	if (LockedTarget)
+	if (IsLockedOn())
 	{
 		LockedTarget = nullptr;
 		return;
 	}
 
+	LockedTarget = FindLockOnTarget();
+}
+
+
+// 락온 대상 찾기: 화면 중앙에 정확히 맞은 몬스터가 우선, 없으면 카메라 정면 원뿔 안에서 화면 중앙에 가장 가까운 몬스터
+AActor* UAbilityComponent::FindLockOnTarget() const
+{
 	FVector TraceEnd;
 	const FHitResult Hit = PerformAimTrace(TraceEnd);
 	if (Hit.bBlockingHit && IsValidLockOnTarget(Hit.GetActor()))
 	{
-		LockedTarget = Hit.GetActor();
+		return Hit.GetActor();
 	}
+
+	AActor* OwnerActor = GetOwner();
+	const UCameraComponent* OwnerCamera = OwnerActor ? OwnerActor->FindComponentByClass<UCameraComponent>() : nullptr;
+	if (!OwnerCamera) return nullptr;
+
+	const FVector ViewLocation = OwnerCamera->GetComponentLocation();
+	const FVector ViewForward = OwnerCamera->GetForwardVector();
+	const float MinDot = FMath::Cos(FMath::DegreesToRadians(LockOnMaxAngle));
+
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(OwnerActor);
+
+	AActor* BestTarget = nullptr;
+	float BestDot = MinDot;
+
+	for (TActorIterator<ABaseMonster> It(GetWorld()); It; ++It)
+	{
+		ABaseMonster* Monster = *It;
+		if (!IsValidLockOnTarget(Monster)) continue;
+		if (FVector::Dist(OwnerActor->GetActorLocation(), Monster->GetActorLocation()) > LockOnRange) continue;
+
+		const FVector ToMonster = (Monster->GetActorLocation() - ViewLocation).GetSafeNormal();
+		const float Dot = FVector::DotProduct(ViewForward, ToMonster);
+		if (Dot <= BestDot) continue;
+
+		// 벽 등에 가려진 몬스터는 제외
+		FCollisionQueryParams SightParams = QueryParams;
+		SightParams.AddIgnoredActor(Monster);
+		if (GetWorld()->LineTraceTestByChannel(ViewLocation, Monster->GetActorLocation(), ECC_Visibility, SightParams)) continue;
+
+		BestDot = Dot;
+		BestTarget = Monster;
+	}
+
+	return BestTarget;
 }
 
 
-// 현재 유효한 락온 대상이 있는지
+// 현재 유효한 락온 대상이 있는지 (살아있는 적대 몬스터이고, 너무 멀어지지 않았음)
 bool UAbilityComponent::IsLockedOn() const
 {
-	return IsValidLockOnTarget(LockedTarget);
+	if (!IsValidLockOnTarget(LockedTarget) || !GetOwner()) return false;
+
+	return FVector::Dist(GetOwner()->GetActorLocation(), LockedTarget->GetActorLocation()) <= LockOnRange * 1.5f;
 }

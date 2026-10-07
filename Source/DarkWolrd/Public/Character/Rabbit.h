@@ -251,6 +251,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
 	float CombatFacingDuration = 1.2f;
 
+	// LockOnCameraSpeed: 락온 중 카메라가 대상 쪽으로 돌아가는 속도 (0이면 카메라는 따라가지 않음)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float LockOnCameraSpeed = 8.f;
+
+	// LockOnCameraPitchOffset: 락온 중 카메라를 대상보다 이만큼(도) 더 내려다보게 해서 토끼와 대상이 함께 보이게 함
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float LockOnCameraPitchOffset = -10.f;
+
 	// IsAiming: 조준 키를 누르고 있는지
 	UFUNCTION(BlueprintCallable, Category = "Camera|Palworld Style")
 	bool IsAiming() const { return bIsAiming; }
