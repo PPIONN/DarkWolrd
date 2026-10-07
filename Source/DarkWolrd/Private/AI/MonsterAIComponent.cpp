@@ -118,7 +118,7 @@ void UMonsterAIComponent::EngageTarget(AActor* Target)
 		{
 			LastAttackTime = Now;
 			const ABaseMonster* SelfMonster = GetOwnerMonster();
-			StartAttack(Target, 1.f, 0.f, ESkillAreaCenter::Target, nullptr,
+			StartAttack(Target, 1.f, AttackRange, 0.f, ESkillAreaCenter::Target, nullptr,
 				SelfMonster ? SelfMonster->BasicAttackMontage : nullptr,
 				SelfMonster ? SelfMonster->BasicAttackHitDelay : 0.f);
 		}
@@ -155,7 +155,7 @@ bool UMonsterAIComponent::TryUseSkill(AActor* Target, float Distance)
 			AICon->StopMovement();
 		}
 		FaceTarget(Target);
-		StartAttack(Target, Skill.DamageMultiplier, Skill.AreaRadius, Skill.AreaCenter, Skill.TelegraphVFX, Skill.Montage, Skill.HitDelay);
+		StartAttack(Target, Skill.DamageMultiplier, Skill.Range, Skill.AreaRadius, Skill.AreaCenter, Skill.TelegraphVFX, Skill.Montage, Skill.HitDelay);
 		return true;
 	}
 	return false;
@@ -164,7 +164,7 @@ bool UMonsterAIComponent::TryUseSkill(AActor* Target, float Distance)
 
 // 공격 시작: 몽타주를 재생하고 동작이 끝날 때까지 다음 행동을 막음. 피해는 HitDelay 뒤 타격 시점에 들어감.
 // 범위 중심이 "시전 순간 위치"나 "자기 주변"이면 지금 위치를 고정해두고 예고 이펙트를 띄워서, 그 사이 빠져나가면 피할 수 있게 함
-void UMonsterAIComponent::StartAttack(AActor* Target, float DamageMultiplier, float AreaRadius, ESkillAreaCenter AreaCenter,
+void UMonsterAIComponent::StartAttack(AActor* Target, float DamageMultiplier, float AttackReach, float AreaRadius, ESkillAreaCenter AreaCenter,
 	UNiagaraSystem* TelegraphVFX, UAnimMontage* Montage, float HitDelay)
 {
 	float ActionDuration = HitDelay;
@@ -187,7 +187,7 @@ void UMonsterAIComponent::StartAttack(AActor* Target, float DamageMultiplier, fl
 
 	if (HitDelay <= 0.f)
 	{
-		ApplyAttackDamage(Target, DamageMultiplier, AreaRadius, bUseFixedCenter, FixedCenter);
+		ApplyAttackDamage(Target, DamageMultiplier, AttackReach, AreaRadius, bUseFixedCenter, FixedCenter);
 		return;
 	}
 
@@ -196,11 +196,11 @@ void UMonsterAIComponent::StartAttack(AActor* Target, float DamageMultiplier, fl
 	TWeakObjectPtr<AActor> WeakTarget(Target);
 	FTimerHandle HitTimerHandle;
 	GetWorld()->GetTimerManager().SetTimer(HitTimerHandle, FTimerDelegate::CreateWeakLambda(this,
-		[this, WeakTarget, DamageMultiplier, AreaRadius, bUseFixedCenter, FixedCenter]()
+		[this, WeakTarget, DamageMultiplier, AttackReach, AreaRadius, bUseFixedCenter, FixedCenter]()
 		{
 			if (bIsActive && (bUseFixedCenter || WeakTarget.IsValid()))
 			{
-				ApplyAttackDamage(WeakTarget.Get(), DamageMultiplier, AreaRadius, bUseFixedCenter, FixedCenter);
+				ApplyAttackDamage(WeakTarget.Get(), DamageMultiplier, AttackReach, AreaRadius, bUseFixedCenter, FixedCenter);
 			}
 		}), HitDelay, false);
 }
@@ -234,11 +234,12 @@ void UMonsterAIComponent::SpawnTelegraph(UNiagaraSystem* TelegraphVFX, const FVe
 
 
 // 피해 적용: AreaRadius가 0이면 대상 하나만, 아니면 범위 중심 반경 안의 적대 진영 전부
-void UMonsterAIComponent::ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AreaRadius, bool bUseFixedCenter, const FVector& FixedCenter)
+void UMonsterAIComponent::ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AttackReach, float AreaRadius, bool bUseFixedCenter, const FVector& FixedCenter)
 {
 	if (AreaRadius <= 0.f)
 	{
-		if (IsValid(Target))
+		// 공격 동작 사이에 사거리 밖으로 빠졌으면 빗나감
+		if (IsValid(Target) && GetDistanceToTarget(Target) <= AttackReach * HitRangeTolerance)
 		{
 			DamageTarget(Target, DamageMultiplier);
 		}

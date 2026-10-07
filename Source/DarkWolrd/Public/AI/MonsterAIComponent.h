@@ -30,6 +30,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster AI")
 	float AttackRange = 120.f;
 
+	// HitRangeTolerance: 단일 대상 공격은 타격 순간에 대상이 (사거리 × 이 배율)보다 멀어져 있으면 빗나감.
+	// 공격 동작 중에 뒤로 빠지면 피할 수 있게 하는 값 (1 = 사거리 그대로, 클수록 관대함)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster AI", meta = (ClampMin = "1"))
+	float HitRangeTolerance = 1.15f;
+
 	// AttackInterval: 평타 사이의 최소 간격(초)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster AI")
 	float AttackInterval = 1.5f;
@@ -83,12 +88,14 @@ private:
 	bool TryUseSkill(AActor* Target, float Distance);
 
 	// StartAttack: 몽타주를 재생하고(범위 스킬이면 예고 이펙트도 띄우고) HitDelay 뒤에 피해를 줌. 평타와 스킬이 공통으로 사용
-	void StartAttack(AActor* Target, float DamageMultiplier, float AreaRadius, ESkillAreaCenter AreaCenter,
+	// AttackReach: 이 공격의 사거리(평타는 AttackRange, 스킬은 Range). 단일 대상 공격의 타격 순간 빗나감 판정에 씀
+	void StartAttack(AActor* Target, float DamageMultiplier, float AttackReach, float AreaRadius, ESkillAreaCenter AreaCenter,
 		UNiagaraSystem* TelegraphVFX, UAnimMontage* Montage, float HitDelay);
 
 	// ApplyAttackDamage: 대상 하나(AreaRadius 0) 또는 범위 중심 주변의 적대 진영 전부에게 피해.
+	// 대상 하나일 때는 그 순간 대상이 (AttackReach × HitRangeTolerance)보다 멀면 빗나감.
 	// bUseFixedCenter면 FixedCenter를 중심으로, 아니면 그 순간 대상의 위치를 중심으로 함
-	void ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AreaRadius, bool bUseFixedCenter, const FVector& FixedCenter);
+	void ApplyAttackDamage(AActor* Target, float DamageMultiplier, float AttackReach, float AreaRadius, bool bUseFixedCenter, const FVector& FixedCenter);
 
 	// SpawnTelegraph: 범위 중심 바닥에 예고 이펙트를 띄우고 Duration 뒤에 지움
 	void SpawnTelegraph(UNiagaraSystem* TelegraphVFX, const FVector& Center, float AreaRadius, float Duration);
