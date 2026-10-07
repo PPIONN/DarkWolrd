@@ -30,7 +30,11 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Monster Card")
 	TArray<FRegisteredMonsterEntry> RegisteredMonsters;
 
-	// AddCard: 필드에서 카드를 주워 보유 목록에 추가 (아직 등록 전 상태)
+	// bAutoRegisterCards: 카드를 주우면 바로 도감에 등록(신규 종족 해금 또는 강화). 끄면 보유 목록에만 넣고 등록은 따로 함
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster Card")
+	bool bAutoRegisterCards = true;
+
+	// AddCard: 필드에서 카드를 주워 보유 목록에 추가 (bAutoRegisterCards면 바로 등록까지)
 	UFUNCTION(BlueprintCallable, Category = "Monster Card")
 	void AddCard(const FMonsterCardEntry& CardData);
 

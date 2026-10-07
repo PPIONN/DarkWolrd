@@ -15,6 +15,7 @@ class USummonAIComponent;
 class UWildMonsterAIComponent;
 class UAnimMontage;
 class UAnimSequence;
+class AMonsterCardPickup;
 
 // EMonsterGrade: 몬스터 등급. 전투 스탯과는 무관하며, 이 몬스터가 드랍할 수 있는
 // 장비/무기/악세서리의 최고 등급만 결정한다 (장비 등급 체계와 동일).
@@ -122,6 +123,18 @@ public:
 	// CardDropChance: 처치 시 이 몬스터의 카드를 드랍할 확률 (0~1). 모든 등급에서 드랍 가능
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
 	float CardDropChance = 0.15f;
+
+	// CardPickupClass: 드랍할 카드 액터. 비워두면 기본 카드(회전하는 흰 판). 모양을 바꾸려면 MonsterCardPickup을 부모로 BP를 만들어 지정
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
+	TSubclassOf<AMonsterCardPickup> CardPickupClass;
+
+	// MonsterName: 화면에 표시할 이름 (카드 획득·도감 등록 알림 등). 비워두면 블루프린트 이름을 씀
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
+	FText MonsterName;
+
+	// GetMonsterDisplayName: MonsterName, 비어있으면 클래스 이름(BP_ 접두사와 _C 접미사 제거)
+	UFUNCTION(BlueprintCallable, Category = "Monster|Card")
+	FText GetMonsterDisplayName() const;
 
 	// ─── 피격 / 사망 연출 (야생 몬스터·소환수 공통) ───────────────────────────────────────
 

@@ -12,10 +12,28 @@ UMonsterCompanionComponent::UMonsterCompanionComponent()
 }
 
 
-// 카드 습득: 보유 목록에 추가만 하고, 등록(소환 해금)은 별도로 RegisterCard를 호출해야 함
+// 알림에 쓸 종족 이름
+static FText GetMonsterClassName(TSubclassOf<ABaseMonster> MonsterClass)
+{
+	const ABaseMonster* DefaultMonster = MonsterClass ? MonsterClass->GetDefaultObject<ABaseMonster>() : nullptr;
+	return DefaultMonster ? DefaultMonster->GetMonsterDisplayName() : FText::GetEmpty();
+}
+
+
+// 카드 습득: 보유 목록에 추가. bAutoRegisterCards면 바로 등록(소환 해금/강화)까지 함
 void UMonsterCompanionComponent::AddCard(const FMonsterCardEntry& CardData)
 {
 	HeldCards.Add(CardData);
+
+	if (bAutoRegisterCards)
+	{
+		RegisterCard(HeldCards.Num() - 1);
+	}
+	else
+	{
+		UGameAnnouncementSubsystem::AnnounceInWorld(this, FText::Format(
+			NSLOCTEXT("Summon", "CardPickedUp", "{0} 카드 획득"), GetMonsterClassName(CardData.MonsterClass)), 3.f);
+	}
 }
 
 
@@ -27,9 +45,20 @@ bool UMonsterCompanionComponent::RegisterCard(int32 HeldCardIndex)
 	const FMonsterCardEntry CardData = HeldCards[HeldCardIndex];
 	HeldCards.RemoveAt(HeldCardIndex);
 
+	const FText MonsterName = GetMonsterClassName(CardData.MonsterClass);
+	FText Message;
+
 	if (FRegisteredMonsterEntry* Existing = FindRegisteredEntry(CardData.MonsterClass))
 	{
-		Existing->UpgradeCount = FMath::Min(Existing->UpgradeCount + 1, MaxUpgradeCount);
+		if (Existing->UpgradeCount < MaxUpgradeCount)
+		{
+			Existing->UpgradeCount++;
+			Message = FText::Format(NSLOCTEXT("Summon", "CardUpgraded", "{0} 강화 +{1}"), MonsterName, Existing->UpgradeCount);
+		}
+		else
+		{
+			Message = FText::Format(NSLOCTEXT("Summon", "CardMaxed", "{0}은(는) 이미 최대 강화 상태입니다"), MonsterName);
+		}
 	}
 	else
 	{
@@ -37,8 +66,10 @@ bool UMonsterCompanionComponent::RegisterCard(int32 HeldCardIndex)
 		NewEntry.MonsterClass = CardData.MonsterClass;
 		NewEntry.UpgradeCount = 0;
 		RegisteredMonsters.Add(NewEntry);
+		Message = FText::Format(NSLOCTEXT("Summon", "CardRegistered", "{0} 도감 등록! 소환 키로 불러낼 수 있습니다"), MonsterName);
 	}
 
+	UGameAnnouncementSubsystem::AnnounceInWorld(this, Message, 3.f);
 	return true;
 }
 
@@ -80,10 +111,15 @@ void UMonsterCompanionComponent::Resummon()
 	SpawnSummons();
 	RefreshPartnerPassives();
 
-	// 소환할 종족이 없어 아무것도 안 나왔으면 쿨타임을 걸지 않음
+	// 소환할 종족이 없어 아무것도 안 나왔으면 쿨타임을 걸지 않고 안내만 함
 	if (ActiveSummons.Num() > 0)
 	{
 		LastResummonTime = GetWorld()->GetTimeSeconds();
+	}
+	else
+	{
+		UGameAnnouncementSubsystem::AnnounceInWorld(this,
+			NSLOCTEXT("Summon", "NothingToSummon", "소환할 몬스터가 없습니다. 몬스터를 쓰러뜨려 카드를 얻으세요"), 3.f);
 	}
 }
 

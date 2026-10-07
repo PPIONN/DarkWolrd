@@ -234,12 +234,25 @@ void ABaseMonster::TryDropMonsterCard()
 {
 	if (FMath::FRand() > CardDropChance) return;
 
+	UClass* PickupClass = CardPickupClass ? CardPickupClass.Get() : AMonsterCardPickup::StaticClass();
 	AMonsterCardPickup* CardPickup = GetWorld()->SpawnActor<AMonsterCardPickup>(
-		AMonsterCardPickup::StaticClass(), GetActorLocation(), GetActorRotation());
+		PickupClass, GetActorLocation(), GetActorRotation());
 
 	if (CardPickup)
 	{
 		CardPickup->CardData.MonsterClass = GetClass();
 		CardPickup->CardData.CapturedLevel = Level;
 	}
+}
+
+
+// 표시 이름: MonsterName이 비어있으면 클래스 이름에서 BP_ 접두사와 _C 접미사를 떼서 사용
+FText ABaseMonster::GetMonsterDisplayName() const
+{
+	if (!MonsterName.IsEmpty()) return MonsterName;
+
+	FString ClassName = GetClass()->GetName();
+	ClassName.RemoveFromStart(TEXT("BP_"));
+	ClassName.RemoveFromEnd(TEXT("_C"));
+	return FText::FromString(ClassName);
 }
