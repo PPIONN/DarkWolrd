@@ -60,6 +60,18 @@ protected:
 	// BeginPlay: 캐릭터가 게임 세상에 처음 등장할 때 한 번만 호출되는 함수
 	virtual void BeginPlay() override;
 
+	// StartAim / StopAim: 조준 키 누름/뗌
+	void StartAim();
+	void StopAim();
+
+	// UpdateCameraAndFacing: 매 프레임 탐험/조준 모드에 맞춰 몸 회전 방식과 카메라 거리·어깨 오프셋·시야각을 갱신
+	void UpdateCameraAndFacing(float DeltaTime);
+
+	bool bIsAiming = false;
+
+	// CombatFacingTimeLeft: 공격 후 카메라 방향을 계속 볼 남은 시간(초)
+	float CombatFacingTimeLeft = 0.f;
+
 	// HandleDeath: HP가 0이 됐을 때. 입력·이동을 막고 소환수를 거둔 뒤 RespawnDelay 뒤 부활 예약
 	void HandleDeath();
 
@@ -198,6 +210,55 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Camera")
 	UCameraComponent* Camera;
 
+	// ─── 팰월드식 3인칭 시점 ───────────────────────────────────────
+	// 평소(탐험): 카메라는 오른쪽 어깨 뒤, 몸은 달리는 방향으로 돎.
+	// 조준(AimAction을 누르는 동안)·락온 중·공격 직후(CombatFacingDuration): 카메라가 어깨로 당겨지고 몸은 카메라 방향을 봄.
+	// 스프링암 길이·어깨 오프셋·시야각은 매 프레임 이 값들을 향해 부드럽게 바뀌므로, SpringArm 컴포넌트 값 대신 여기서 조절
+
+	// ExploreArmLength / ExploreSocketOffset / ExploreFOV: 평소 카메라 거리, 어깨 오프셋(Y = 오른쪽, Z = 위), 시야각
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float ExploreArmLength = 320.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	FVector ExploreSocketOffset = FVector(0.f, 55.f, 65.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float ExploreFOV = 90.f;
+
+	// AimArmLength / AimSocketOffset / AimFOV: 조준 중 카메라 거리, 어깨 오프셋, 시야각 (어깨 너머로 당겨짐)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float AimArmLength = 160.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	FVector AimSocketOffset = FVector(0.f, 65.f, 55.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float AimFOV = 75.f;
+
+	// CameraBlendSpeed: 탐험 ↔ 조준 카메라 전환 속도 (클수록 빠름)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float CameraBlendSpeed = 8.f;
+
+	// ExploreTurnRate: 탐험 중 달리는 방향으로 몸이 도는 속도(도/초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float ExploreTurnRate = 540.f;
+
+	// FacingTurnRate: 조준·락온·공격 직후 카메라 방향으로 몸이 도는 속도(도/초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float FacingTurnRate = 720.f;
+
+	// CombatFacingDuration: 공격한 뒤 이 시간(초) 동안은 카메라 방향을 계속 봄 (연속 공격 중에 몸이 이리저리 돌지 않게)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float CombatFacingDuration = 1.2f;
+
+	// IsAiming: 조준 키를 누르고 있는지
+	UFUNCTION(BlueprintCallable, Category = "Camera|Palworld Style")
+	bool IsAiming() const { return bIsAiming; }
+
+	// IsFacingCamera: 지금 몸이 카메라 방향을 보는 모드인지 (조준·락온·공격 직후). 애님 BP에서 옆걸음/정면 달리기 선택에 사용 가능
+	UFUNCTION(BlueprintCallable, Category = "Camera|Palworld Style")
+	bool IsFacingCamera() const;
+
 	// EditAnywhere: 에디터와 블루프린트 양쪽에서 값을 자유롭게 수정 가능
 	// DefaultMappingContext: 어떤 키가 어떤 동작에 대응되는지 정의하는 입력 매핑 테이블
 	UPROPERTY(EditAnywhere, Category = "Input")
@@ -285,6 +346,10 @@ public:
 	// SprintAction: 달리기(스프린트) 입력(Shift 등)과 연결된 입력 액션 에셋. 누르고 있는 동안만 적용
 	UPROPERTY(EditAnywhere, Category = "Input")
 	UInputAction* SprintAction;
+
+	// AimAction: 조준 입력(마우스 오른쪽 버튼 등). 누르고 있는 동안 카메라가 어깨로 당겨지고 몸이 카메라 방향을 봄
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* AimAction;
 
 	// ─── 대시(텔레포트) ───────────────────────────────────────
 	// 마법사 컨셉이라 빠른 대시보다 순간이동으로 구현. 전진(W)을 짧은 시간 안에 두 번 누르면 발동

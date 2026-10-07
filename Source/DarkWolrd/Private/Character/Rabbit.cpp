@@ -33,7 +33,8 @@ ARabbit::ARabbit()
 	// SpringArm 설정
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
 	SpringArm->SetupAttachment(RootComponent);
-	SpringArm->TargetArmLength = 400.f;
+	SpringArm->TargetArmLength = ExploreArmLength;
+	SpringArm->SocketOffset = ExploreSocketOffset;
 	SpringArm->bUsePawnControlRotation = true;
 
 	// 카메라 지연 추적: 캐릭터가 갑자기 순간이동해도 카메라가 그 자리에서 즉시 스냅되지 않고 부드럽게 뒤쫓아가게 함
@@ -45,11 +46,12 @@ ARabbit::ARabbit()
 	Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = false;
 
-	// 캐릭터가 항상 카메라(컨트롤러) 방향을 보도록 함 — 스트레이프(옆걸음) 애니메이션이 실제로 트리거되려면
-	// 이동 방향으로 몸이 따라 도는 게 아니라, 몸은 카메라 방향을 유지한 채 이동 방향만 달라져야 함
-	bUseControllerRotationYaw = true;
-	GetCharacterMovement()->bOrientRotationToMovement = false;
-	GetCharacterMovement()->RotationRate = FRotator(0.f, 500.f, 0.f);
+	// 몸 회전: 평소에는 달리는 방향으로 돌고(팰월드식 탐험), 조준·락온·공격 직후에는 카메라 방향을 봄(옆걸음).
+	// 실제 전환은 매 프레임 UpdateCameraAndFacing에서 함. 여기서는 탐험 모드로 시작
+	bUseControllerRotationYaw = false;
+	GetCharacterMovement()->bOrientRotationToMovement = true;
+	GetCharacterMovement()->bUseControllerDesiredRotation = false;
+	GetCharacterMovement()->RotationRate = FRotator(0.f, ExploreTurnRate, 0.f);
 
 	AbilityComponent = CreateDefaultSubobject<UAbilityComponent>(TEXT("AbilityComponent"));
 	StatComponent = CreateDefaultSubobject<UCharacterStatComponent>(TEXT("StatComponent"));
@@ -118,6 +120,8 @@ void ARabbit::Tick(float DeltaTime)
 
 	TimeSinceLastInput += DeltaTime;
 
+	UpdateCameraAndFacing(DeltaTime);
+
 	// 머리 Look At 타겟: 카메라가 보는 방향으로 먼 지점을 계산해서 ABP에서 머리/목 본 컨트롤에 쓸 수 있게 함
 	if (Camera)
 	{
@@ -153,6 +157,8 @@ void ARabbit::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 		EIC->BindAction(InteractAction,  ETriggerEvent::Started,    this, &ARabbit::Interact);
 		EIC->BindAction(SprintAction,    ETriggerEvent::Started,    this, &ARabbit::StartSprint);
 		EIC->BindAction(SprintAction,    ETriggerEvent::Completed,  this, &ARabbit::StopSprint);
+		EIC->BindAction(AimAction,       ETriggerEvent::Started,    this, &ARabbit::StartAim);
+		EIC->BindAction(AimAction,       ETriggerEvent::Completed,  this, &ARabbit::StopAim);
 		EIC->BindAction(SummonToggleAction,    ETriggerEvent::Started, this, &ARabbit::Resummon);
 		EIC->BindAction(CommandModifierAction, ETriggerEvent::Started, this, &ARabbit::StartCommandMode);
 		EIC->BindAction(Command1Action,        ETriggerEvent::Started, this, &ARabbit::HandleCommand1);
@@ -194,10 +200,11 @@ void ARabbit::Move(const FInputActionValue& Value)
 	// 순수 전진 여부: 앞으로 가는 성분이 있고, 옆으로 가는 성분이 거의 없어야 함
 	const bool bIsPureForward = MovementVector.Y > 0.f && FMath::IsNearlyZero(MovementVector.X, 0.1f);
 
-	// 스프린트는 순수 전진일 때만 적용됨 (옆/뒤로는 항상 NonForwardMoveSpeed 유지).
+	// 탐험 모드에서는 몸이 달리는 방향을 보므로 어느 방향이든 정면 달리기 속도(스프린트 포함).
+	// 카메라 방향을 보는 모드(조준·락온·공격 직후)에서는 순수 전진만 빠르고 옆/뒤는 NonForwardMoveSpeed.
 	// 소환수 이동속도 패시브 배율은 모든 방향에 공통으로 곱함
 	const float MoveSpeedMultiplier = StatComponent ? StatComponent->GetMoveSpeedMultiplier() : 1.f;
-	if (bIsPureForward)
+	if (bIsPureForward || !IsFacingCamera())
 	{
 		GetCharacterMovement()->MaxWalkSpeed = (bIsSprinting ? SprintSpeed : ForwardMoveSpeed) * MoveSpeedMultiplier;
 	}
@@ -274,6 +281,12 @@ void ARabbit::Attack()
 	// 쿨다운 등으로 실제로 발동되지 않았으면(false 반환) 이동을 잠글 이유가 없음
 	if (AbilityComponent && AbilityComponent->TryActivateAbility(TEXT("BasicAttack")))
 	{
+		// 탐험 중에 쏘면 카메라(조준) 방향으로 즉시 돌아보고, 잠시 그 방향을 유지
+		if (Controller)
+		{
+			SetActorRotation(FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f));
+		}
+		CombatFacingTimeLeft = CombatFacingDuration;
 		StartAttackMoveLock();
 	}
 }
@@ -429,8 +442,23 @@ void ARabbit::TryDash()
 	if (bDashCooldownEnabled && GetWorld()->GetTimeSeconds() < DashCooldownEndTime) return;
 	if (!Controller) return;
 
-	const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
-	const FVector DashDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	// 카메라 방향 모드(조준·락온·공격 직후): 카메라 정면으로 대시.
+	// 탐험 모드: 지금 누르고 있는 이동 방향(없으면 몸이 보는 방향)으로 대시하고 몸도 그쪽으로 돌림
+	FVector DashDirection;
+	if (IsFacingCamera())
+	{
+		const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
+		DashDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	}
+	else
+	{
+		DashDirection = GetCharacterMovement()->GetCurrentAcceleration().GetSafeNormal2D();
+		if (DashDirection.IsNearlyZero())
+		{
+			DashDirection = GetActorForwardVector().GetSafeNormal2D();
+		}
+		SetActorRotation(DashDirection.Rotation());
+	}
 
 	const FVector StartLocation = GetActorLocation();
 	FVector TargetLocation = StartLocation + DashDirection * DashDistance;
@@ -756,4 +784,53 @@ void ARabbit::DebugStartArena()
 		return;
 	}
 	ShowSummonDebugMessage(TEXT("DebugStartArena: 레벨에 MonsterArena가 없음"), FColor::Red);
+}
+
+
+// 조준 시작/끝: 누르고 있는 동안만 조준 모드
+void ARabbit::StartAim()
+{
+	RegisterInputActivity();
+	bIsAiming = true;
+}
+
+
+void ARabbit::StopAim()
+{
+	bIsAiming = false;
+}
+
+
+// 카메라 방향을 보는 모드: 조준 중, 락온 중, 공격 직후
+bool ARabbit::IsFacingCamera() const
+{
+	return bIsAiming || CombatFacingTimeLeft > 0.f || (AbilityComponent && AbilityComponent->IsLockedOn());
+}
+
+
+// 매 프레임: 모드에 맞는 몸 회전 방식을 고르고, 카메라 거리·어깨 오프셋·시야각을 목표값으로 부드럽게 이동
+void ARabbit::UpdateCameraAndFacing(float DeltaTime)
+{
+	CombatFacingTimeLeft = FMath::Max(0.f, CombatFacingTimeLeft - DeltaTime);
+	const bool bFaceCamera = IsFacingCamera();
+
+	// 탐험: 달리는 방향으로 회전 / 카메라 방향 모드: 컨트롤러(카메라) 방향으로 회전.
+	// 둘 다 RotationRate 속도로 부드럽게 돌도록 bUseControllerRotationYaw(즉시 회전)는 쓰지 않음
+	bUseControllerRotationYaw = false;
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	MoveComp->bOrientRotationToMovement = !bFaceCamera;
+	MoveComp->bUseControllerDesiredRotation = bFaceCamera;
+	MoveComp->RotationRate = FRotator(0.f, bFaceCamera ? FacingTurnRate : ExploreTurnRate, 0.f);
+
+	if (SpringArm)
+	{
+		const float TargetLength = bIsAiming ? AimArmLength : ExploreArmLength;
+		const FVector TargetOffset = bIsAiming ? AimSocketOffset : ExploreSocketOffset;
+		SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, TargetLength, DeltaTime, CameraBlendSpeed);
+		SpringArm->SocketOffset = FMath::VInterpTo(SpringArm->SocketOffset, TargetOffset, DeltaTime, CameraBlendSpeed);
+	}
+	if (Camera)
+	{
+		Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, bIsAiming ? AimFOV : ExploreFOV, DeltaTime, CameraBlendSpeed));
+	}
 }
