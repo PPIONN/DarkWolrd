@@ -12,6 +12,9 @@
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "TimerManager.h"
+#include "Components/WidgetComponent.h"
+#include "UI/MonsterHPBarWidget.h"
+#include "UI/DamageNumberActor.h"
 
 // 생성자: Tick 활성화 및 기본 설정
 ABaseMonster::ABaseMonster()
@@ -23,6 +26,16 @@ ABaseMonster::ABaseMonster()
 
 	// 레벨에 배치한 몬스터뿐 아니라 코드로 스폰한 몬스터(필드보스, 던전 웨이브, 소환수)도 AI 컨트롤러가 붙도록 함
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	// 머리 위 HP바: 화면 고정 크기로 그림. 높이는 BeginPlay에서 캡슐 크기에 맞춰 정함
+	HPBarComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("HPBarComponent"));
+	HPBarComponent->SetupAttachment(GetRootComponent());
+	HPBarComponent->SetWidgetSpace(EWidgetSpace::Screen);
+	HPBarComponent->SetDrawSize(FVector2D(90.f, 9.f));
+	HPBarComponent->SetPivot(FVector2D(0.5f, 0.5f));
+	HPBarComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HPBarComponent->SetWidgetClass(UMonsterHPBarWidget::StaticClass());
+	HPBarComponent->SetVisibility(false);
 }
 
 // 게임 시작 시 한 번 호출: 현재 체력을 최대 체력으로 초기화
@@ -32,6 +45,61 @@ void ABaseMonster::BeginPlay()
 
 	// 게임 시작 시 현재 체력을 최대 체력으로 설정
 	CurrentHP = GetMaxHP();
+
+	// HP바: 캡슐 꼭대기 위에 띄우고, 내 소환수는 초록·항상 표시, 적은 빨강·맞았을 때만 표시
+	if (HPBarComponent)
+	{
+		HPBarComponent->SetRelativeLocation(FVector(0.f, 0.f, GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() + HPBarHeightOffset));
+		if (UMonsterHPBarWidget* HPBarWidget = Cast<UMonsterHPBarWidget>(HPBarComponent->GetUserWidgetObject()))
+		{
+			HPBarWidget->SetMonster(this, bIsPlayerSummon ? SummonHPBarColor : EnemyHPBarColor);
+		}
+		SetHPBarVisible(bIsPlayerSummon || bAlwaysShowHPBar);
+	}
+}
+
+
+void ABaseMonster::SetHPBarVisible(bool bVisible)
+{
+	if (HPBarComponent)
+	{
+		HPBarComponent->SetVisibility(bVisible);
+	}
+}
+
+
+void ABaseMonster::ShowHPBarAfterDamage()
+{
+	SetHPBarVisible(true);
+	if (bIsPlayerSummon || bAlwaysShowHPBar) return;
+
+	GetWorldTimerManager().SetTimer(HPBarHideTimerHandle, FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		SetHPBarVisible(false);
+	}), HPBarHideDelay, false);
+}
+
+
+void ABaseMonster::SpawnDamageNumber(float Damage, const AActor* DamageCauser) const
+{
+	// 투사체면 쏜 쪽을 공격자로 봄
+	const AActor* Attacker = (DamageCauser && !DamageCauser->IsA<APawn>() && DamageCauser->GetInstigator()) ? DamageCauser->GetInstigator() : DamageCauser;
+
+	FLinearColor Color = FLinearColor(0.95f, 0.95f, 0.95f);
+	int32 FontSize = 20;
+	if (bIsPlayerSummon)
+	{
+		Color = FLinearColor(1.f, 0.3f, 0.25f);
+		FontSize = 18;
+	}
+	else if (Attacker && Attacker->FindComponentByClass<UCharacterStatComponent>())
+	{
+		Color = FLinearColor(1.f, 0.85f, 0.25f);
+		FontSize = 26;
+	}
+
+	const FVector HeadLocation = GetActorLocation() + FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+	ADamageNumberActor::SpawnDamageNumber(GetWorld(), HeadLocation, Damage, Color, FontSize);
 }
 
 // 매 프레임 호출: 현재는 별도 로직 없음. 자식 클래스에서 AI 등 추가 가능
@@ -85,6 +153,15 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 	}
 
 	CurrentHP -= ActualDamage;
+
+	if (ActualDamage > 0.f)
+	{
+		ShowHPBarAfterDamage();
+		if (bShowDamageNumbers)
+		{
+			SpawnDamageNumber(ActualDamage, DamageCauser);
+		}
+	}
 
 	// 공격받았음을 AI에 통보: 소환수는 자기방어 우선순위, 야생 몬스터는 반격 대상 지정
 	if (DamageCauser)
@@ -171,6 +248,10 @@ void ABaseMonster::Die()
 	{
 		WildAIComponent->StopWildAI();
 	}
+
+	// 쓰러지면 HP바를 바로 숨김 (시체가 남아 있는 동안 빈 바가 떠 있지 않게)
+	GetWorldTimerManager().ClearTimer(HPBarHideTimerHandle);
+	SetHPBarVisible(false);
 
 	OnMonsterDied.Broadcast(this);
 

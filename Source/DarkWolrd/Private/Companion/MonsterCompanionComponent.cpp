@@ -276,6 +276,7 @@ void UMonsterCompanionComponent::SpawnSummons()
 		else
 		{
 			NewSummon->SetActorHiddenInGame(true);
+			NewSummon->SetHPBarVisible(false);
 			TWeakObjectPtr<UMonsterCompanionComponent> WeakThis(this);
 			FTimerHandle RevealTimerHandle;
 			World->GetTimerManager().SetTimer(RevealTimerHandle, FTimerDelegate::CreateWeakLambda(NewSummon, [WeakThis, NewSummon]()
@@ -311,6 +312,7 @@ void UMonsterCompanionComponent::RevealSummon(ABaseMonster* Summon)
 	if (!IsValid(Summon)) return;
 
 	Summon->SetActorHiddenInGame(false);
+	Summon->SetHPBarVisible(true);
 
 	const float HalfHeight = Summon->GetCapsuleComponent() ? Summon->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
 	const FVector FeetLocation = Summon->GetActorLocation() - FVector(0.f, 0.f, HalfHeight);

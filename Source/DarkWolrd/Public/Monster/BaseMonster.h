@@ -17,6 +17,7 @@ class UWildMonsterAIComponent;
 class UAnimMontage;
 class UAnimSequence;
 class AMonsterCardPickup;
+class UWidgetComponent;
 
 // EMonsterGrade: 몬스터 등급. 전투 스탯과는 무관하며, 이 몬스터가 드랍할 수 있는
 // 장비/무기/악세서리의 최고 등급만 결정한다 (장비 등급 체계와 동일).
@@ -173,6 +174,37 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Monster|AI")
 	UWildMonsterAIComponent* WildAIComponent;
 
+	// ─── 머리 위 HP바 / 피해 숫자 ───────────────────────────────────────
+
+	// HPBarComponent: 머리 위 HP바. 화면에 고정 크기로 그려짐(Screen 공간). 크기는 Draw Size, 모양은 Widget Class로 바꿀 수 있음
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Monster|UI")
+	UWidgetComponent* HPBarComponent;
+
+	// bAlwaysShowHPBar: 켜면 항상 표시. 끄면 피해를 받은 뒤 HPBarHideDelay초 동안만 표시 (플레이어 소환수는 항상 표시)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
+	bool bAlwaysShowHPBar = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
+	float HPBarHideDelay = 5.f;
+
+	// HPBarHeightOffset: 캡슐 꼭대기에서 HP바를 얼마나 더 위에 띄울지(cm). 날개·귀 등이 캡슐 위로 튀어나온 몬스터는 키우면 됨
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
+	float HPBarHeightOffset = 30.f;
+
+	// EnemyHPBarColor / SummonHPBarColor: 적(야생·대전 상대)과 내 소환수의 HP바 색
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
+	FLinearColor EnemyHPBarColor = FLinearColor(0.85f, 0.12f, 0.08f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
+	FLinearColor SummonHPBarColor = FLinearColor(0.25f, 0.8f, 0.3f);
+
+	// bShowDamageNumbers: 피해를 받을 때 숫자를 띄울지
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
+	bool bShowDamageNumbers = true;
+
+	// SetHPBarVisible: HP바를 보이거나 숨김 (소환 연출로 숨겨둔 소환수 등)
+	void SetHPBarVisible(bool bVisible);
+
 	// ─── 소환수 자동 전투 / 파트너 패시브 (몬스터 BP마다 설정) ───────────────────────────────────────
 
 	// BasicAttackMontage: 소환수로 싸울 때 평타 몽타주 (없으면 애니메이션 없이 피해만 들어감)
@@ -274,6 +306,13 @@ private:
 
 	FTimerHandle CurseTimerHandle;
 	FTimerHandle SummonAppearTimerHandle;
+	FTimerHandle HPBarHideTimerHandle;
+
+	// ShowHPBarAfterDamage: 피해를 받았을 때 HP바를 보이고, 항상 표시 대상이 아니면 HPBarHideDelay 뒤에 숨김 예약
+	void ShowHPBarAfterDamage();
+
+	// SpawnDamageNumber: 머리 위에 피해 숫자를 띄움. 플레이어가 때리면 크고 노란색, 소환수가 때리면 흰색, 내 소환수가 맞으면 빨간색
+	void SpawnDamageNumber(float Damage, const AActor* DamageCauser) const;
 
 	UPROPERTY()
 	UNiagaraComponent* CurseVFXComponent = nullptr;
