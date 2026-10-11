@@ -91,10 +91,10 @@ public:
 	float AimTraceDistance = 5000.f;
 
 	// MaxAimDownPitch: 조준 트레이스가 아래로 내려가는 각도의 최대치(도 단위, 양수로 입력).
-	// 카메라가 캐릭터를 위에서 내려다볼 때 그 각도 그대로 트레이스하면 오브가 바닥에 너무 가파르게 꽂히므로,
-	// 일정 각도 이상은 못 내려가게(더 수평에 가깝게) 눌러준다
+	// 값을 낮추면 카메라가 내려다볼 때 오브가 바닥에 가파르게 꽂히지 않게 더 수평으로 쏘지만,
+	// 그만큼 화면 중앙 조준점보다 위로 날아가게 됨. 조준점과 실제 발사 방향을 맞추려고 기본은 사실상 제한 없음(89)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
-	float MaxAimDownPitch = 15.f;
+	float MaxAimDownPitch = 89.f;
 
 	// ─── 락온 ───────────────────────────────────────
 

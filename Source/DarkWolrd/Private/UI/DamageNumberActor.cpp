@@ -23,7 +23,7 @@ void ADamageNumberActor::SpawnDamageNumber(UWorld* World, const FVector& Locatio
 	if (!World) return;
 
 	// 같은 자리에 연속으로 맞아도 숫자가 겹치지 않도록 시작 위치와 흘러가는 방향을 조금씩 흩뜨림
-	const FVector Jitter(FMath::FRandRange(-25.f, 25.f), FMath::FRandRange(-25.f, 25.f), FMath::FRandRange(0.f, 20.f));
+	const FVector Jitter(FMath::FRandRange(-40.f, 40.f), FMath::FRandRange(-40.f, 40.f), FMath::FRandRange(0.f, 35.f));
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;

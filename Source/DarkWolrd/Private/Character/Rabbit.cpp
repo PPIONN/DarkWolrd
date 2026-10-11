@@ -19,6 +19,7 @@
 #include "Engine/Blueprint.h"
 #include "Engine/Engine.h"
 #include "UI/HUDWidget.h"
+#include "UI/CrosshairWidget.h"
 #include "UI/DialogueWidget.h"
 #include "Interaction/InteractionComponent.h"
 #include "NPC/NPCBase.h"
@@ -29,6 +30,9 @@
 ARabbit::ARabbit()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	// 조준점 위젯: 기본은 코드로 그린 조준점 (BP에서 다른 위젯으로 바꾸거나 비워서 끌 수 있음)
+	CrosshairWidgetClass = UCrosshairWidget::StaticClass();
 
 	// SpringArm 설정
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
@@ -91,6 +95,16 @@ void ARabbit::BeginPlay()
 				HUDWidgetNative->SetStatComponent(StatComponent);
 				HUDWidgetNative->SetInteractionComponent(InteractionComponent);
 				HUDWidgetNative->AddToViewport();
+			}
+		}
+
+		// 조준점: 화면 정중앙(평타가 날아가는 곳)과 락온 대상 표시
+		if (CrosshairWidgetClass)
+		{
+			CrosshairWidgetNative = CreateWidget<UCrosshairWidget>(PC, CrosshairWidgetClass);
+			if (CrosshairWidgetNative)
+			{
+				CrosshairWidgetNative->AddToViewport(-1);
 			}
 		}
 

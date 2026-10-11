@@ -249,17 +249,7 @@ void ABaseMonster::Die()
 		WildAIComponent->StopWildAI();
 	}
 
-	// 쓰러지면 HP바를 바로 숨김 (시체가 남아 있는 동안 빈 바가 떠 있지 않게)
-	GetWorldTimerManager().ClearTimer(HPBarHideTimerHandle);
-	SetHPBarVisible(false);
-
 	OnMonsterDied.Broadcast(this);
-
-	if (!DeathAnimation)
-	{
-		Destroy();
-		return;
-	}
 
 	// 시체가 더 이상 움직이거나 길을 막지 않도록 컨트롤러를 떼고 이동·충돌을 끔
 	DetachFromControllerPendingDestroy();
@@ -268,9 +258,24 @@ void ABaseMonster::Die()
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	// 한 방에 쓰러져도 HP바가 보이도록, 0이 된 바(잔상이 줄어드는 모습)를 HPBarDeathLingerTime 동안 보여준 뒤 숨김
+	SetHPBarVisible(true);
+	GetWorldTimerManager().SetTimer(HPBarHideTimerHandle, FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		SetHPBarVisible(false);
+	}), HPBarDeathLingerTime, false);
+
+	// 사망 애니메이션이 없으면 몸은 바로 감추고, HP바가 사라질 때까지만 액터를 남겨둠
+	if (!DeathAnimation)
+	{
+		GetMesh()->SetVisibility(false, true);
+		SetLifeSpan(HPBarDeathLingerTime + 0.1f);
+		return;
+	}
+
 	// 애님 BP 대신 이 시퀀스 하나만 반복 없이 재생 → 끝나면 마지막 포즈에서 멈춰 있음
 	GetMesh()->PlayAnimation(DeathAnimation, /*bLooping=*/false);
-	SetLifeSpan(FMath::Max(DeathAnimation->GetPlayLength() + CorpseLingerTime, 0.1f));
+	SetLifeSpan(FMath::Max(DeathAnimation->GetPlayLength() + CorpseLingerTime, HPBarDeathLingerTime + 0.1f));
 }
 
 // 생존 여부 확인: 현재 체력이 0보다 크면 살아있음

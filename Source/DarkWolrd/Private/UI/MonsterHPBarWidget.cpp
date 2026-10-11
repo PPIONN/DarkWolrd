@@ -109,7 +109,9 @@ void UMonsterHPBarWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 	}
 	else
 	{
-		TrailPercent = FMath::FInterpConstantTo(TrailPercent, Percent, InDeltaTime, TrailSpeed);
+		// HP가 0이 되면(쓰러짐) 바가 사라지기 전에 잔상이 다 빠지도록 빠르게 줄임
+		const float Speed = Percent <= 0.f ? TrailSpeed * 2.5f : TrailSpeed;
+		TrailPercent = FMath::FInterpConstantTo(TrailPercent, Percent, InDeltaTime, Speed);
 	}
 
 	if (HPBar)

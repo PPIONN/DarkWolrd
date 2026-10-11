@@ -20,6 +20,7 @@ class UAbilityComponent;
 class UCharacterStatComponent;
 class UMonsterCompanionComponent;
 class UHUDWidget;
+class UCrosshairWidget;
 class UInteractionComponent;
 class UDialogueWidget;
 
@@ -435,6 +436,13 @@ public:
 	// HUDWidgetClass: 에디터에서 지정할 HP/MP HUD 위젯 블루프린트 (UHUDWidget을 부모로 만든 위젯)
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UHUDWidget> HUDWidgetClass;
+
+	// CrosshairWidgetClass: 화면 중앙 조준점·락온 표시 위젯. 기본은 코드로 그린 UCrosshairWidget, 비워두면 조준점 없음
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UCrosshairWidget> CrosshairWidgetClass;
+
+	UPROPERTY()
+	UCrosshairWidget* CrosshairWidgetNative = nullptr;
 
 	// HUDWidgetNative: 게임 시작 시 자동으로 생성되어 화면에 계속 떠 있는 HUD 위젯 (없으면 nullptr)
 	UPROPERTY()

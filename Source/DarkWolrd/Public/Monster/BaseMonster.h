@@ -187,6 +187,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
 	float HPBarHideDelay = 5.f;
 
+	// HPBarDeathLingerTime: 쓰러진 뒤 HP바를 이 시간(초) 동안 더 보여줌 (한 방에 쓰러져도 바가 비는 모습이 보이게)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
+	float HPBarDeathLingerTime = 1.f;
+
 	// HPBarHeightOffset: 캡슐 꼭대기에서 HP바를 얼마나 더 위에 띄울지(cm). 날개·귀 등이 캡슐 위로 튀어나온 몬스터는 키우면 됨
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|UI")
 	float HPBarHeightOffset = 30.f;
