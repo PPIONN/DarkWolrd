@@ -21,8 +21,9 @@ class DARKWOLRD_API AMagicOrbProjectile : public AActor
 public:
 	AMagicOrbProjectile();
 
-	// Launch: 대기 중이던 구슬을 지정한 방향으로 발사함. 발사 이전에는 충돌·이동 판정을 하지 않음
-	void Launch(const FVector& Direction);
+	// Launch: 대기 중이던 구슬을 지정한 방향으로 발사함. 발사 이전에는 충돌·이동 판정을 하지 않음.
+	// HomingTarget을 넘기면(락온 중) 그 대상을 따라가는 유도탄이 됨
+	void Launch(const FVector& Direction, AActor* HomingTarget = nullptr);
 
 protected:
 	virtual void BeginPlay() override;
@@ -67,6 +68,10 @@ public:
 	// LifeSpanAfterLaunch: 발사 후 아무것도 맞추지 못했을 때 자동 소멸까지 걸리는 시간(초)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magic Orb")
 	float LifeSpanAfterLaunch = 5.f;
+
+	// HomingAcceleration: 락온 대상을 따라 방향을 트는 세기. 클수록 급하게 꺾임 (0이면 유도하지 않고 직선으로 날아감)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magic Orb")
+	float HomingAcceleration = 8000.f;
 
 	// ImpactVFX: 바닥이든 몬스터든 무엇에 부딫혀 사라지든 공통으로 재생되는 충돌 이펙트 (에디터에서 지정)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magic Orb")

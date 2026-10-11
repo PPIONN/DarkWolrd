@@ -35,8 +35,8 @@ void URabbitAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	bShouldMove = GroundSpeed > MoveThreshold && MoveComp && !MoveComp->GetCurrentAcceleration().IsNearlyZero();
 
 	bIsAiming = Owner->IsAiming();
-	bIsFacingCamera = Owner->IsFacingCamera();
-	Direction = bIsFacingCamera ? Owner->MoveInputAngle : 0.f;
+	bIsStrafing = Owner->IsStrafing();
+	Direction = bIsStrafing ? Owner->MoveInputAngle : 0.f;
 
 	// 바라볼 지점이 몸 정면에서 많이 벗어날수록(뒤쪽일수록) Look At을 약하게
 	LookAtTarget = Owner->HeadLookAtTarget;

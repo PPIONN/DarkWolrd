@@ -23,8 +23,8 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Rabbit")
 	float GroundSpeed = 0.f;
 
-	// Direction: 블렌드 스페이스 Direction 축(-180~180, 0=정면).
-	// 탐험 모드에서는 몸이 달리는 방향을 보므로 항상 0, 조준·락온·공격 직후에는 입력 방향(옆걸음·뒷걸음)
+	// Direction: 블렌드 스페이스 Direction 축(-180~180, 몸 정면 기준 0=정면).
+	// 탐험 상태에서는 몸이 달리는 방향을 보므로 항상 0, 조준 중·공격 직후에는 이동 방향(옆걸음·뒷걸음)
 	UPROPERTY(BlueprintReadOnly, Category = "Rabbit")
 	float Direction = 0.f;
 
@@ -44,9 +44,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Rabbit")
 	bool bIsAiming = false;
 
-	// bIsFacingCamera: 몸이 카메라 방향을 보는 모드인지 (조준·락온·공격 직후)
+	// bIsStrafing: 몸 방향이 고정된 채 옆걸음·뒷걸음하는 상태인지 (조준 중·공격 직후)
 	UPROPERTY(BlueprintReadOnly, Category = "Rabbit")
-	bool bIsFacingCamera = false;
+	bool bIsStrafing = false;
 
 	// LookAtTarget: 머리가 바라볼 월드 좌표 (카메라가 보는 먼 지점)
 	UPROPERTY(BlueprintReadOnly, Category = "Rabbit")

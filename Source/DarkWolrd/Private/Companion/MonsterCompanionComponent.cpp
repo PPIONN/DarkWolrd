@@ -5,6 +5,11 @@
 #include "Summon/SummonAIComponent.h"
 #include "Stats/CharacterStatComponent.h"
 #include "UI/GameAnnouncementSubsystem.h"
+#include "Components/CapsuleComponent.h"
+#include "GameFramework/Character.h"
+#include "NiagaraFunctionLibrary.h"
+#include "Kismet/GameplayStatics.h"
+#include "TimerManager.h"
 
 UMonsterCompanionComponent::UMonsterCompanionComponent()
 {
@@ -147,6 +152,18 @@ void UMonsterCompanionComponent::DestroyActiveSummons()
 	{
 		if (IsValid(Summon))
 		{
+			// 사라지는 연출 (아직 나타나기 전이라 숨겨진 소환수는 생략)
+			if (!Summon->IsHidden())
+			{
+				if (DespawnVFX)
+				{
+					UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, DespawnVFX, Summon->GetActorLocation());
+				}
+				if (DespawnSound)
+				{
+					UGameplayStatics::PlaySoundAtLocation(this, DespawnSound, Summon->GetActorLocation());
+				}
+			}
 			Summon->Destroy();
 		}
 	}
@@ -246,10 +263,70 @@ void UMonsterCompanionComponent::SpawnSummons()
 		{
 			NewSummon->SummonAIComponent->ActivateSummonAI(OwnerActor, SpawnedCount);
 		}
+		ApplyAutoHuntSettings(NewSummon);
 
 		ActiveSummons.Add(NewSummon);
+
+		// 등장 연출: 첫 마리는 바로, 나머지는 SummonStagger 간격으로 한 마리씩 나타남 (나타나기 전까지는 숨겨둠)
+		const float RevealDelay = SpawnedCount * SummonStagger;
+		if (RevealDelay <= 0.f)
+		{
+			RevealSummon(NewSummon);
+		}
+		else
+		{
+			NewSummon->SetActorHiddenInGame(true);
+			TWeakObjectPtr<UMonsterCompanionComponent> WeakThis(this);
+			FTimerHandle RevealTimerHandle;
+			World->GetTimerManager().SetTimer(RevealTimerHandle, FTimerDelegate::CreateWeakLambda(NewSummon, [WeakThis, NewSummon]()
+			{
+				if (WeakThis.IsValid())
+				{
+					WeakThis->RevealSummon(NewSummon);
+				}
+				else
+				{
+					NewSummon->SetActorHiddenInGame(false);
+				}
+			}), RevealDelay, false);
+		}
+
 		++SpawnedCount;
 	}
+
+	// 플레이어 시전 동작
+	if (SpawnedCount > 0 && SummonCastMontage)
+	{
+		if (ACharacter* OwnerCharacter = Cast<ACharacter>(OwnerActor))
+		{
+			OwnerCharacter->PlayAnimMontage(SummonCastMontage);
+		}
+	}
+}
+
+
+// 등장 연출: 보이게 한 뒤 발밑에서 이펙트·사운드를 재생하고, 몸이 튀어나오듯 커지게 함
+void UMonsterCompanionComponent::RevealSummon(ABaseMonster* Summon)
+{
+	if (!IsValid(Summon)) return;
+
+	Summon->SetActorHiddenInGame(false);
+
+	const float HalfHeight = Summon->GetCapsuleComponent() ? Summon->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+	const FVector FeetLocation = Summon->GetActorLocation() - FVector(0.f, 0.f, HalfHeight);
+
+	UNiagaraSystem* VFX = Summon->SummonVFX ? Summon->SummonVFX : SummonVFX;
+	USoundBase* Sound = Summon->SummonSound ? Summon->SummonSound : SummonSound;
+	if (VFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, VFX, FeetLocation);
+	}
+	if (Sound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, Sound, FeetLocation);
+	}
+
+	Summon->PlaySummonAppear(SummonAppearDuration);
 }
 
 
@@ -302,4 +379,53 @@ void UMonsterCompanionComponent::HandleAttackPlayerTargetCommand()
 			Summon->SummonAIComponent->CommandAttackPlayerTarget();
 		}
 	}
+}
+
+
+// 협공 대상 기록: 플레이어가 때린 적과 플레이어를 때린 적 중 가장 최근 것을 기억
+void UMonsterCompanionComponent::NotifyPlayerHitEnemy(AActor* Enemy)
+{
+	if (!CombatFaction::AreHostile(GetOwner(), Enemy)) return;
+
+	AssistTarget = Enemy;
+	AssistTargetTime = GetWorld()->GetTimeSeconds();
+}
+
+
+void UMonsterCompanionComponent::NotifyPlayerAttacked(AActor* Attacker)
+{
+	NotifyPlayerHitEnemy(Attacker);
+}
+
+
+AActor* UMonsterCompanionComponent::GetAssistTarget() const
+{
+	AActor* Target = AssistTarget.Get();
+	if (!Target || !GetOwner()) return nullptr;
+	if (GetWorld()->GetTimeSeconds() - AssistTargetTime > AssistMemoryTime) return nullptr;
+	if (!CombatFaction::IsAlive(Target) || !CombatFaction::AreHostile(GetOwner(), Target)) return nullptr;
+	if (FVector::Dist(GetOwner()->GetActorLocation(), Target->GetActorLocation()) > AssistRadius) return nullptr;
+
+	return Target;
+}
+
+
+// 자동 사냥 켜기/끄기: 설정을 바꾸고 지금 소환되어 있는 소환수에도 바로 적용
+void UMonsterCompanionComponent::SetSummonAutoHunt(bool bEnabled)
+{
+	bSummonAutoHunt = bEnabled;
+	for (ABaseMonster* Summon : ActiveSummons)
+	{
+		ApplyAutoHuntSettings(Summon);
+	}
+}
+
+
+// 자동 사냥 설정 적용: 소환수가 스스로 적을 찾되, 플레이어 곁(AutoHuntRadius)을 벗어나 사냥하지 않게 함
+void UMonsterCompanionComponent::ApplyAutoHuntSettings(ABaseMonster* Summon) const
+{
+	if (!IsValid(Summon) || !Summon->SummonAIComponent) return;
+
+	Summon->SummonAIComponent->bAutoEngage = bSummonAutoHunt;
+	Summon->SummonAIComponent->AutoEngageLeashRadius = AutoHuntRadius;
 }

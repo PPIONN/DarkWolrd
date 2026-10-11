@@ -10,6 +10,7 @@
 #include "BaseMonster.generated.h"
 
 class UNiagaraSystem;
+class USoundBase;
 class UNiagaraComponent;
 class USummonAIComponent;
 class UWildMonsterAIComponent;
@@ -195,6 +196,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|Passive")
 	float PartnerPassiveValue = 0.f;
 
+	// SummonVFX / SummonSound: 이 몬스터가 소환될 때 발밑에서 재생할 이펙트·사운드.
+	// 비워두면 플레이어의 MonsterCompanion 컴포넌트에 지정된 공통 연출을 사용
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|FX")
+	UNiagaraSystem* SummonVFX = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|FX")
+	USoundBase* SummonSound = nullptr;
+
+	// PlaySummonAppear: 몸(메시)이 아주 작은 크기에서 살짝 커졌다가 원래 크기로 돌아오며 튀어나오는 연출 (Duration초)
+	void PlaySummonAppear(float Duration);
+
 	// ─── 저주 상태 ("저주하는 자" 직업 스킬이 거는 디버프) ───────────────────────────────────────
 	// 저주에 걸리면 몸 전체에 보라색 VFX가 씌워지고, 걸려있는 동안 받는 모든 대미지가 증폭된다.
 	// 중첩되지 않으며, 이미 걸린 상태에서 다시 걸리면 배율은 최신 값으로 덮어쓰고 지속시간만 새로고침한다.
@@ -261,6 +273,7 @@ private:
 	TWeakObjectPtr<AActor> LastRewardPlayer;
 
 	FTimerHandle CurseTimerHandle;
+	FTimerHandle SummonAppearTimerHandle;
 
 	UPROPERTY()
 	UNiagaraComponent* CurseVFXComponent = nullptr;

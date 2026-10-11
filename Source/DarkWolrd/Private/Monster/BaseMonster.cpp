@@ -75,6 +75,12 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 		else if (Attacker->FindComponentByClass<UCharacterStatComponent>())
 		{
 			LastRewardPlayer = Attacker;
+
+			// 플레이어가 직접 때린 적이면 소환수들이 함께 공격하도록 알림
+			if (UMonsterCompanionComponent* Companion = Attacker->FindComponentByClass<UMonsterCompanionComponent>())
+			{
+				Companion->NotifyPlayerHitEnemy(this);
+			}
 		}
 	}
 
@@ -255,4 +261,32 @@ FText ABaseMonster::GetMonsterDisplayName() const
 	ClassName.RemoveFromStart(TEXT("BP_"));
 	ClassName.RemoveFromEnd(TEXT("_C"));
 	return FText::FromString(ClassName);
+}
+
+
+// 소환 등장 연출: 메시 크기를 거의 0에서 시작해 살짝 넘쳤다가(ease-out-back) 원래 크기로 맞춤. 발밑 기준으로 커지므로 땅에서 솟아나는 느낌
+void ABaseMonster::PlaySummonAppear(float Duration)
+{
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp || Duration <= 0.f) return;
+
+	const FVector TargetScale = MeshComp->GetRelativeScale3D();
+	const float StartTime = GetWorld()->GetTimeSeconds();
+	MeshComp->SetRelativeScale3D(TargetScale * 0.05f);
+
+	GetWorldTimerManager().SetTimer(SummonAppearTimerHandle, FTimerDelegate::CreateWeakLambda(this, [this, MeshComp, TargetScale, StartTime, Duration]()
+	{
+		const float Alpha = FMath::Clamp((GetWorld()->GetTimeSeconds() - StartTime) / Duration, 0.f, 1.f);
+		if (Alpha >= 1.f)
+		{
+			MeshComp->SetRelativeScale3D(TargetScale);
+			GetWorldTimerManager().ClearTimer(SummonAppearTimerHandle);
+			return;
+		}
+
+		const float Overshoot = 1.70158f;
+		const float T = Alpha - 1.f;
+		const float Eased = 1.f + (Overshoot + 1.f) * T * T * T + Overshoot * T * T;
+		MeshComp->SetRelativeScale3D(TargetScale * FMath::Max(Eased, 0.05f));
+	}), 0.016f, true);
 }

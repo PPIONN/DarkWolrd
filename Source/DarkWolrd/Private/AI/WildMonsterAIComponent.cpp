@@ -63,6 +63,9 @@ void UWildMonsterAIComponent::NotifyAttacked(AActor* Attacker)
 	}
 	if (!CanTarget(Attacker)) return;
 
+	// 맞으면 경계를 끝내고 즉시 교전
+	AlertEndTime = 0.f;
+
 	if (!CombatFaction::IsAlive(CurrentTarget))
 	{
 		CurrentTarget = Attacker;
@@ -98,14 +101,43 @@ void UWildMonsterAIComponent::TickDecision()
 		return;
 	}
 
+	const float Now = GetWorld()->GetTimeSeconds();
+
+	// 감지 범위에서 새로 발견한 적: 바로 달려들지 않고 AlertDuration 동안 경계 (발견 동작 재생)
 	if (!CurrentTarget && bAggressive)
 	{
 		CurrentTarget = FindNearestHostile();
+		if (CurrentTarget && AlertDuration > 0.f)
+		{
+			AlertEndTime = Now + AlertDuration;
+			if (AlertMontage)
+			{
+				SelfMonster->PlayAnimMontage(AlertMontage);
+			}
+		}
 	}
 
 	if (CurrentTarget)
 	{
 		bPatrolWalking = false;
+
+		// 경계 중: 대상을 바라보며 천천히 다가가기만 하고 공격은 아직 안 함
+		if (Now < AlertEndTime)
+		{
+			FaceTarget(CurrentTarget);
+			ApplySpeedMultiplier(AlertSpeedMultiplier);
+			if (AlertSpeedMultiplier > 0.f)
+			{
+				AICon->MoveToActor(CurrentTarget, AttackRange);
+			}
+			else
+			{
+				AICon->StopMovement();
+			}
+			return;
+		}
+
+		ApplySpeedMultiplier(1.f);
 		EngageTarget(CurrentTarget);
 		return;
 	}

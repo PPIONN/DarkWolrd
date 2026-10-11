@@ -176,7 +176,7 @@ void UAbilityComponent::CastInstantly(FName AbilityID, const FAbilityData& Data)
 	for (AMagicOrbProjectile* Orb : NewOrbs)
 	{
 		const FVector Direction = (AimPoint - Orb->GetActorLocation()).GetSafeNormal();
-		Orb->Launch(Direction);
+		Orb->Launch(Direction, IsLockedOn() ? LockedTarget : nullptr);
 	}
 }
 
@@ -257,7 +257,7 @@ void UAbilityComponent::FireReadyAbility()
 		if (!Orb) continue;
 
 		const FVector Direction = (AimPoint - Orb->GetActorLocation()).GetSafeNormal();
-		Orb->Launch(Direction);
+		Orb->Launch(Direction, IsLockedOn() ? LockedTarget : nullptr);
 	}
 
 	PendingOrbs.Reset();

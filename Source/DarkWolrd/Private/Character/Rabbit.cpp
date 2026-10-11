@@ -123,13 +123,24 @@ void ARabbit::Tick(float DeltaTime)
 	UpdateCameraAndFacing(DeltaTime);
 
 	// 머리 Look At 타겟: 평소에는 카메라가 보는 방향의 먼 지점.
-	// 탐험 모드로 달리는 중에는 몸이 달리는 방향을 보므로 고개도 정면(달리는 방향)을 보게 함.
-	// 두 방향 사이는 각도로 부드럽게 전환 (점을 직선으로 보간하면 몸을 관통하며 고개가 휙 돌 수 있음)
+	// 탐험 상태로 달리는 중에는 몸이 달리는 방향을 보므로 고개도 정면(달리는 방향)을 봄.
+	// 공격 직후 락온 대상을 보고 있을 때는 고개도 대상을 봄.
+	// 방향 사이는 각도로 부드럽게 전환 (점을 직선으로 보간하면 몸을 관통하며 고개가 휙 돌 수 있음)
 	if (Camera)
 	{
-		const bool bLookAhead = !IsFacingCamera() && GetVelocity().Size2D() > 10.f;
-		const FVector DesiredDir = bLookAhead ? GetActorForwardVector() : Camera->GetComponentRotation().Vector();
 		const FVector Origin = GetActorLocation();
+		const bool bStrafe = IsStrafing();
+		float LockOnYaw = 0.f;
+
+		FVector DesiredDir = Camera->GetComponentRotation().Vector();
+		if (bStrafe && GetLockOnTargetYaw(LockOnYaw))
+		{
+			DesiredDir = (AbilityComponent->LockedTarget->GetActorLocation() - Origin).GetSafeNormal();
+		}
+		else if (!bStrafe && GetVelocity().Size2D() > 10.f)
+		{
+			DesiredDir = GetActorForwardVector();
+		}
 
 		FVector CurrentDir = (HeadLookAtTarget - Origin).GetSafeNormal();
 		if (CurrentDir.IsNearlyZero())
@@ -190,12 +201,14 @@ void ARabbit::Move(const FInputActionValue& Value)
 	FVector2D MovementVector = Value.Get<FVector2D>();
 	if (!Controller) return;
 
-	// 입력 각도 계산: 0=정면, +90=오른쪽, -90=왼쪽, ±180=뒤. 입력이 없으면(atan2(0,0) 미정의) 마지막 값 유지.
-	// 탐험 모드에서는 몸이 이동 방향으로 돌기 때문에 애니메이션 입장에선 항상 "정면으로 달리기"(0).
-	// 카메라 방향 모드(조준·락온·공격 직후)에서만 실제 입력 각도를 넘겨 옆걸음/뒷걸음이 나오게 함
+	// 이동 방향 각도(몸 정면 기준): 0=정면, +90=오른쪽, -90=왼쪽, ±180=뒤. 입력이 없으면(atan2(0,0) 미정의) 마지막 값 유지.
+	// 탐험 상태에서는 몸이 이동 방향으로 돌기 때문에 애니메이션 입장에선 항상 "정면으로 달리기"(0).
+	// 옆걸음 상태(조준·공격 직후)에서만 실제 각도를 넘겨 옆걸음/뒷걸음이 나오게 함.
+	// 몸이 카메라가 아닌 락온 대상을 볼 수도 있으므로 입력을 월드 방향으로 바꾼 뒤 몸 방향과 비교함
 	if (!MovementVector.IsNearlyZero())
 	{
-		MoveInputAngle = IsFacingCamera() ? FMath::RadiansToDegrees(FMath::Atan2(MovementVector.X, MovementVector.Y)) : 0.f;
+		const float InputWorldYaw = Controller->GetControlRotation().Yaw + FMath::RadiansToDegrees(FMath::Atan2(MovementVector.X, MovementVector.Y));
+		MoveInputAngle = IsStrafing() ? FRotator::NormalizeAxis(InputWorldYaw - GetActorRotation().Yaw) : 0.f;
 	}
 
 	// 더블탭 전진 감지: 전진 입력이 "막 시작된 순간"(상승 엣지)이 DoubleTapWindow 이내에 두 번째로 발생하면 대시
@@ -211,14 +224,12 @@ void ARabbit::Move(const FInputActionValue& Value)
 	}
 	bWasPressingForward = bIsPressingForwardNow;
 
-	// 순수 전진 여부: 앞으로 가는 성분이 있고, 옆으로 가는 성분이 거의 없어야 함
-	const bool bIsPureForward = MovementVector.Y > 0.f && FMath::IsNearlyZero(MovementVector.X, 0.1f);
-
-	// 탐험 모드에서는 몸이 달리는 방향을 보므로 어느 방향이든 정면 달리기 속도(스프린트 포함).
-	// 카메라 방향을 보는 모드(조준·락온·공격 직후)에서는 순수 전진만 빠르고 옆/뒤는 NonForwardMoveSpeed.
+	// 몸 정면으로 가는 중인지: 탐험 상태에서는 MoveInputAngle이 항상 0이라 어느 방향이든 정면 달리기 속도(스프린트 포함).
+	// 옆걸음 상태(조준·공격 직후)에서는 몸 정면 쪽으로 갈 때만 빠르고 옆/뒤는 NonForwardMoveSpeed.
 	// 소환수 이동속도 패시브 배율은 모든 방향에 공통으로 곱함
+	const bool bIsMovingForward = FMath::Abs(MoveInputAngle) < 20.f;
 	const float MoveSpeedMultiplier = StatComponent ? StatComponent->GetMoveSpeedMultiplier() : 1.f;
-	if (bIsPureForward || !IsFacingCamera())
+	if (bIsMovingForward)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = (bIsSprinting ? SprintSpeed : ForwardMoveSpeed) * MoveSpeedMultiplier;
 	}
@@ -295,8 +306,13 @@ void ARabbit::Attack()
 	// 쿨다운 등으로 실제로 발동되지 않았으면(false 반환) 이동을 잠글 이유가 없음
 	if (AbilityComponent && AbilityComponent->TryActivateAbility(TEXT("BasicAttack")))
 	{
-		// 탐험 중에 쏘면 카메라(조준) 방향으로 즉시 돌아보고, 잠시 그 방향을 유지
-		if (Controller)
+		// 쏘는 방향으로 즉시 돌아보고 잠시 그 방향을 유지: 락온 중이면 대상 쪽, 아니면 카메라(조준) 방향
+		float FacingYaw = 0.f;
+		if (GetLockOnTargetYaw(FacingYaw))
+		{
+			SetActorRotation(FRotator(0.f, FacingYaw, 0.f));
+		}
+		else if (Controller)
 		{
 			SetActorRotation(FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f));
 		}
@@ -456,10 +472,10 @@ void ARabbit::TryDash()
 	if (bDashCooldownEnabled && GetWorld()->GetTimeSeconds() < DashCooldownEndTime) return;
 	if (!Controller) return;
 
-	// 카메라 방향 모드(조준·락온·공격 직후): 카메라 정면으로 대시.
-	// 탐험 모드: 지금 누르고 있는 이동 방향(없으면 몸이 보는 방향)으로 대시하고 몸도 그쪽으로 돌림
+	// 옆걸음 상태(조준·공격 직후): 카메라 정면으로 대시.
+	// 탐험 상태: 지금 누르고 있는 이동 방향(없으면 몸이 보는 방향)으로 대시하고 몸도 그쪽으로 돌림
 	FVector DashDirection;
-	if (IsFacingCamera())
+	if (IsStrafing())
 	{
 		const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
 		DashDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
@@ -691,6 +707,13 @@ float ARabbit::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, A
 
 	StatComponent->ApplyDamage(ActualDamage);
 
+	// 나를 공격한 적을 소환수들이 함께 공격하도록 알림 (투사체면 쏜 쪽 기준)
+	if (CompanionComponent && DamageCauser)
+	{
+		AActor* Attacker = (!DamageCauser->IsA<APawn>() && DamageCauser->GetInstigator()) ? DamageCauser->GetInstigator() : DamageCauser;
+		CompanionComponent->NotifyPlayerAttacked(Attacker);
+	}
+
 	if (StatComponent->CurrentHP <= 0.f)
 	{
 		HandleDeath();
@@ -815,35 +838,44 @@ void ARabbit::StopAim()
 }
 
 
-// 카메라 방향을 보는 모드: 조준 중, 락온 중, 공격 직후
-bool ARabbit::IsFacingCamera() const
+// 옆걸음 상태: 조준 중이거나 공격 직후 (락온만 한 상태는 탐험처럼 자유롭게 달림)
+bool ARabbit::IsStrafing() const
 {
-	return bIsAiming || CombatFacingTimeLeft > 0.f || (AbilityComponent && AbilityComponent->IsLockedOn());
+	return bIsAiming || CombatFacingTimeLeft > 0.f;
 }
 
 
-// 매 프레임: 모드에 맞는 몸 회전 방식을 고르고, 카메라 거리·어깨 오프셋·시야각을 목표값으로 부드럽게 이동
+// 락온 대상 방향: 락온 중이고 조준 중이 아니면 토끼에서 대상을 향하는 수평 각도를 채움
+bool ARabbit::GetLockOnTargetYaw(float& OutYaw) const
+{
+	if (bIsAiming || !AbilityComponent || !AbilityComponent->IsLockedOn()) return false;
+
+	OutYaw = (AbilityComponent->LockedTarget->GetActorLocation() - GetActorLocation()).Rotation().Yaw;
+	return true;
+}
+
+
+// 매 프레임: 상태에 맞는 몸 회전 방식을 고르고, 카메라 거리·어깨 오프셋·시야각을 목표값으로 부드럽게 이동
 void ARabbit::UpdateCameraAndFacing(float DeltaTime)
 {
 	CombatFacingTimeLeft = FMath::Max(0.f, CombatFacingTimeLeft - DeltaTime);
-	const bool bFaceCamera = IsFacingCamera();
+	const bool bStrafe = IsStrafing();
 
-	// 락온 중: 카메라가 대상 쪽으로 돌아감. 몸은 카메라 방향을 보므로 결과적으로 대상을 바라봄
-	if (Controller && LockOnCameraSpeed > 0.f && AbilityComponent && AbilityComponent->IsLockedOn())
-	{
-		const FVector ViewLocation = Camera ? Camera->GetComponentLocation() : GetActorLocation();
-		const FRotator ToTarget = (AbilityComponent->LockedTarget->GetActorLocation() - ViewLocation).Rotation();
-		const FRotator Desired(FMath::Clamp(ToTarget.Pitch + LockOnCameraPitchOffset, -45.f, 20.f), ToTarget.Yaw, 0.f);
-		Controller->SetControlRotation(FMath::RInterpTo(Controller->GetControlRotation(), Desired, DeltaTime, LockOnCameraSpeed));
-	}
+	// 탐험: 달리는 방향으로 회전 / 옆걸음: 카메라 방향으로 회전, 단 공격 직후 락온 중이면 락온 대상 쪽으로 회전.
+	// 모두 회전 속도 제한을 두고 부드럽게 돌도록 bUseControllerRotationYaw(즉시 회전)는 쓰지 않음
+	float LockOnYaw = 0.f;
+	const bool bFaceLockOnTarget = bStrafe && GetLockOnTargetYaw(LockOnYaw);
 
-	// 탐험: 달리는 방향으로 회전 / 카메라 방향 모드: 컨트롤러(카메라) 방향으로 회전.
-	// 둘 다 RotationRate 속도로 부드럽게 돌도록 bUseControllerRotationYaw(즉시 회전)는 쓰지 않음
 	bUseControllerRotationYaw = false;
 	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
-	MoveComp->bOrientRotationToMovement = !bFaceCamera;
-	MoveComp->bUseControllerDesiredRotation = bFaceCamera;
-	MoveComp->RotationRate = FRotator(0.f, bFaceCamera ? FacingTurnRate : ExploreTurnRate, 0.f);
+	MoveComp->bOrientRotationToMovement = !bStrafe;
+	MoveComp->bUseControllerDesiredRotation = bStrafe && !bFaceLockOnTarget;
+	MoveComp->RotationRate = FRotator(0.f, bStrafe ? FacingTurnRate : ExploreTurnRate, 0.f);
+
+	if (bFaceLockOnTarget)
+	{
+		SetActorRotation(FMath::RInterpConstantTo(GetActorRotation(), FRotator(0.f, LockOnYaw, 0.f), DeltaTime, FacingTurnRate));
+	}
 
 	if (SpringArm)
 	{

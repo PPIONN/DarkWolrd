@@ -211,7 +211,9 @@ void AMonsterArena::BeginFight()
 		Summon->CurrentHP = Summon->GetMaxHP();
 		if (Summon->SummonAIComponent)
 		{
+			// 아레나 안에서는 플레이어 위치와 상관없이 상대를 찾아 싸움
 			Summon->SummonAIComponent->bAutoEngage = true;
+			Summon->SummonAIComponent->AutoEngageLeashRadius = 0.f;
 		}
 		Summon->OnMonsterDied.AddDynamic(this, &AMonsterArena::HandleCombatantDied);
 	}
@@ -319,9 +321,19 @@ void AMonsterArena::EndMatch(bool bPlayerWon, const FText& Reason)
 		if (ABaseMonster* Summon = Weak.Get())
 		{
 			Summon->OnMonsterDied.RemoveDynamic(this, &AMonsterArena::HandleCombatantDied);
+			// 대전이 끝나면 필드 자동 사냥 설정으로 되돌림
 			if (Summon->SummonAIComponent)
 			{
-				Summon->SummonAIComponent->bAutoEngage = false;
+				const AActor* SummonOwner = Summon->SummonAIComponent->GetOwnerPlayer();
+				const UMonsterCompanionComponent* Companion = SummonOwner ? SummonOwner->FindComponentByClass<UMonsterCompanionComponent>() : nullptr;
+				if (Companion)
+				{
+					Companion->ApplyAutoHuntSettings(Summon);
+				}
+				else
+				{
+					Summon->SummonAIComponent->bAutoEngage = false;
+				}
 			}
 		}
 	}

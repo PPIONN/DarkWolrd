@@ -64,8 +64,11 @@ protected:
 	void StartAim();
 	void StopAim();
 
-	// UpdateCameraAndFacing: 매 프레임 탐험/조준 모드에 맞춰 몸 회전 방식과 카메라 거리·어깨 오프셋·시야각을 갱신
+	// UpdateCameraAndFacing: 매 프레임 탐험/옆걸음/조준 상태에 맞춰 몸 회전 방식과 카메라 거리·어깨 오프셋·시야각을 갱신
 	void UpdateCameraAndFacing(float DeltaTime);
+
+	// GetLockOnTargetYaw: 락온 중이고 조준 중이 아니면 토끼에서 락온 대상을 향하는 수평 각도를 채우고 true
+	bool GetLockOnTargetYaw(float& OutYaw) const;
 
 	bool bIsAiming = false;
 
@@ -212,7 +215,8 @@ public:
 
 	// ─── 팰월드식 3인칭 시점 ───────────────────────────────────────
 	// 평소(탐험): 카메라는 오른쪽 어깨 뒤, 몸은 달리는 방향으로 돎.
-	// 조준(AimAction을 누르는 동안)·락온 중·공격 직후(CombatFacingDuration): 카메라가 어깨로 당겨지고 몸은 카메라 방향을 봄.
+	// 조준(AimAction을 누르는 동안): 카메라가 어깨로 당겨지고 몸은 카메라 방향을 봄(옆걸음).
+	// 공격 직후(CombatFacingDuration): 몸이 카메라 방향(락온 중이면 락온 대상)을 봄(옆걸음). 락온 자체는 카메라·몸을 붙잡지 않고 마법만 유도함.
 	// 스프링암 길이·어깨 오프셋·시야각은 매 프레임 이 값들을 향해 부드럽게 바뀌므로, SpringArm 컴포넌트 값 대신 여기서 조절
 
 	// ExploreArmLength / ExploreSocketOffset / ExploreFOV: 평소 카메라 거리, 어깨 오프셋(Y = 오른쪽, Z = 위), 시야각
@@ -247,25 +251,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
 	float FacingTurnRate = 720.f;
 
-	// CombatFacingDuration: 공격한 뒤 이 시간(초) 동안은 카메라 방향을 계속 봄 (연속 공격 중에 몸이 이리저리 돌지 않게)
+	// CombatFacingDuration: 공격한 뒤 이 시간(초) 동안은 카메라(락온 중이면 대상) 방향을 계속 봄 (연속 공격 중에 몸이 이리저리 돌지 않게)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
 	float CombatFacingDuration = 1.2f;
-
-	// LockOnCameraSpeed: 락온 중 카메라가 대상 쪽으로 돌아가는 속도 (0이면 카메라는 따라가지 않음)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
-	float LockOnCameraSpeed = 8.f;
-
-	// LockOnCameraPitchOffset: 락온 중 카메라를 대상보다 이만큼(도) 더 내려다보게 해서 토끼와 대상이 함께 보이게 함
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
-	float LockOnCameraPitchOffset = -10.f;
 
 	// IsAiming: 조준 키를 누르고 있는지
 	UFUNCTION(BlueprintCallable, Category = "Camera|Palworld Style")
 	bool IsAiming() const { return bIsAiming; }
 
-	// IsFacingCamera: 지금 몸이 카메라 방향을 보는 모드인지 (조준·락온·공격 직후). 애님 BP에서 옆걸음/정면 달리기 선택에 사용 가능
+	// IsStrafing: 몸 방향이 고정된 채(카메라 또는 락온 대상) 옆걸음·뒷걸음으로 움직이는 상태인지 (조준 중·공격 직후).
+	// false면 탐험 상태(몸이 달리는 방향으로 돎)
 	UFUNCTION(BlueprintCallable, Category = "Camera|Palworld Style")
-	bool IsFacingCamera() const;
+	bool IsStrafing() const;
 
 	// EditAnywhere: 에디터와 블루프린트 양쪽에서 값을 자유롭게 수정 가능
 	// DefaultMappingContext: 어떤 키가 어떤 동작에 대응되는지 정의하는 입력 매핑 테이블

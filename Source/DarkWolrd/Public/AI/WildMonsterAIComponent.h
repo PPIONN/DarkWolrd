@@ -36,6 +36,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wild AI|Aggro")
 	float AggroRadius = 900.f;
 
+	// AlertDuration: 감지 범위에서 적을 처음 발견하면 이 시간(초) 동안 경계하며 천천히 다가온 뒤 본격적으로 달려듦.
+	// 경계 중에는 공격하지 않으며, 공격받으면 즉시 교전 (0이면 바로 달려듦)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wild AI|Aggro")
+	float AlertDuration = 1.f;
+
+	// AlertSpeedMultiplier: 경계 중 이동속도 배율 (0이면 제자리에서 바라보기만 함)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wild AI|Aggro")
+	float AlertSpeedMultiplier = 0.3f;
+
+	// AlertMontage: 적을 발견한 순간 재생할 몽타주 (놀람·위협 동작 등). 비워두면 재생 안 함
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wild AI|Aggro")
+	UAnimMontage* AlertMontage = nullptr;
+
 	// LeashRadius: 집에서 이 거리 이상 끌려가면 싸움을 포기하고 집으로 돌아감
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wild AI|Aggro")
 	float LeashRadius = 2000.f;
@@ -109,4 +122,7 @@ private:
 
 	bool bPatrolWalking = false;
 	float NextPatrolTime = 0.f;
+
+	// AlertEndTime: 이 시각까지는 경계 상태 (천천히 다가오기만 하고 공격하지 않음)
+	float AlertEndTime = 0.f;
 };

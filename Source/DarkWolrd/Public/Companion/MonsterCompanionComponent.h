@@ -7,6 +7,10 @@
 #include "Item/MonsterCardData.h"
 #include "MonsterCompanionComponent.generated.h"
 
+class UNiagaraSystem;
+class USoundBase;
+class UAnimMontage;
+
 // UMonsterCompanionComponent: 플레이어가 주운/등록한 몬스터 카드를 관리하는 컴포넌트.
 // HeldCards = 주웠지만 아직 등록(소환 해금)하지 않은 카드, RegisteredMonsters = 영구 등록된 도감.
 // 소환/포메이션/전투 AI는 다음 단계에서 이 도감 데이터를 기반으로 구현할 예정
@@ -74,6 +78,34 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon")
 	float ResummonCooldown = 0.f;
 
+	// ─── 소환 연출 ───────────────────────────────────────
+
+	// SummonVFX / SummonSound: 소환수가 나타날 때 발밑에서 재생하는 공통 이펙트·사운드 (몬스터 BP에 따로 지정돼 있으면 그쪽 우선)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|FX")
+	UNiagaraSystem* SummonVFX = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|FX")
+	USoundBase* SummonSound = nullptr;
+
+	// DespawnVFX / DespawnSound: 재소환·소환 해제로 소환수가 사라질 때 그 자리에서 재생
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|FX")
+	UNiagaraSystem* DespawnVFX = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|FX")
+	USoundBase* DespawnSound = nullptr;
+
+	// SummonCastMontage: 소환할 때 플레이어(토끼)가 재생할 몽타주 (손을 뻗는 시전 동작 등). 비워두면 재생 안 함
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|FX")
+	UAnimMontage* SummonCastMontage = nullptr;
+
+	// SummonAppearDuration: 소환수 몸이 작은 크기에서 튀어나오듯 커지는 시간(초). 0이면 크기 연출 없음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|FX")
+	float SummonAppearDuration = 0.35f;
+
+	// SummonStagger: 여러 마리를 소환할 때 한 마리씩 차례로 나타나는 간격(초). 0이면 동시에 나타남
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|FX")
+	float SummonStagger = 0.2f;
+
 	// SetSummonLocked: 켜두면 Y 재소환이 막힘 (몬스터대전 중 재소환으로 HP를 채우거나 판을 뒤엎는 것 방지)
 	UFUNCTION(BlueprintCallable, Category = "Summon")
 	void SetSummonLocked(bool bLocked) { bSummonLocked = bLocked; }
@@ -116,12 +148,56 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Summon")
 	void HandleAttackPlayerTargetCommand();
 
+	// ─── 자동 사냥 ───────────────────────────────────────
+
+	// bSummonAutoHunt: 켜면 소환수가 플레이어 주변(AutoHuntRadius)의 적을 스스로 찾아 계속 사냥함.
+	// 플레이어가 가만히 있어도(잠수) 사냥을 이어가며, 적이 없을 때만 따라다니기/배회로 돌아감
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|Auto Hunt")
+	bool bSummonAutoHunt = true;
+
+	// AutoHuntRadius: 자동 사냥으로 노리는 적의 범위 (플레이어 기준 거리)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|Auto Hunt")
+	float AutoHuntRadius = 1500.f;
+
+	// SetSummonAutoHunt: 자동 사냥을 켜고 끔. 지금 소환되어 있는 소환수에도 바로 적용 (UI 토글 버튼 등에서 호출)
+	UFUNCTION(BlueprintCallable, Category = "Summon|Auto Hunt")
+	void SetSummonAutoHunt(bool bEnabled);
+
+	// ApplyAutoHuntSettings: 소환수 AI에 자동 사냥 설정을 적용 (소환할 때, 몬스터대전이 끝났을 때)
+	void ApplyAutoHuntSettings(ABaseMonster* Summon) const;
+
+	// ─── 협공 ───────────────────────────────────────
+
+	// AssistMemoryTime: 플레이어가 때린 적 / 플레이어를 때린 적을 이 시간(초) 동안 기억해서 소환수가 함께 공격함
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|Assist")
+	float AssistMemoryTime = 8.f;
+
+	// AssistRadius: 플레이어에게서 이 거리 안에 있는 적만 협공 (멀리 달아난 적을 끝까지 쫓아가지 않게)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon|Assist")
+	float AssistRadius = 2000.f;
+
+	// NotifyPlayerHitEnemy: 플레이어 본인이 적을 공격했을 때 (BaseMonster::TakeDamage에서 호출)
+	void NotifyPlayerHitEnemy(AActor* Enemy);
+
+	// NotifyPlayerAttacked: 적이 플레이어를 공격했을 때 (Rabbit::TakeDamage에서 호출)
+	void NotifyPlayerAttacked(AActor* Attacker);
+
+	// GetAssistTarget: 소환수가 함께 공격할 대상 (가장 최근에 플레이어가 때렸거나 플레이어를 때린 적).
+	// 기억 시간이 지났거나, 쓰러졌거나, 플레이어에게서 너무 멀면 nullptr
+	AActor* GetAssistTarget() const;
+
 private:
+	TWeakObjectPtr<AActor> AssistTarget;
+	float AssistTargetTime = -1000.f;
+
 	// SpawnSummons: SelectedSummonSlots(또는 비어있으면 도감 앞에서부터)로 소환수를 스폰하고 활성화함
 	void SpawnSummons();
 
 	// DestroyActiveSummons: 소환수 액터만 파괴함 (파트너 패시브 갱신은 호출하는 쪽에서 한 번만)
 	void DestroyActiveSummons();
+
+	// RevealSummon: 소환수를 보이게 하고 등장 연출(이펙트·사운드·튀어나오기)을 재생
+	void RevealSummon(ABaseMonster* Summon);
 
 	// LastResummonTime: 마지막으로 실제 소환에 성공한 시각 (ResummonCooldown 계산용)
 	float LastResummonTime = -1000.f;

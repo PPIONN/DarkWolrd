@@ -38,6 +38,7 @@ void USummonAIComponent::ActivateSummonAI(AActor* InOwnerPlayer, int32 InFollowS
 	bForceGather = false;
 	PlayerStillTime = 0.f;
 	bWandering = false;
+	bFollowing = false;
 	bWanderWalking = false;
 
 	StartDecisionLoop();
@@ -55,6 +56,7 @@ void USummonAIComponent::DeactivateSummonAI()
 	bSelfDefenseEngaged = false;
 	bForceGather = false;
 	bWandering = false;
+	bFollowing = false;
 }
 
 
@@ -133,10 +135,23 @@ AActor* USummonAIComponent::DecideTarget()
 		return SelfDefenseTarget;
 	}
 
-	// 우선순위 4: 자동 교전 (몬스터대전 등에서만 켜짐). 고른 대상이 쓰러질 때까지 유지
+	// 우선순위 4: 협공. 플레이어가 최근에 때린 적, 또는 플레이어를 때린 적 (강제 모임 명령 중에는 무시)
+	if (!bForceGather && IsValid(OwnerPlayer))
+	{
+		if (const UMonsterCompanionComponent* Companion = OwnerPlayer->FindComponentByClass<UMonsterCompanionComponent>())
+		{
+			if (AActor* AssistTarget = Companion->GetAssistTarget())
+			{
+				return AssistTarget;
+			}
+		}
+	}
+
+	// 우선순위 5: 자동 교전 (몬스터대전 등에서만 켜짐). 고른 대상이 쓰러질 때까지 유지
 	if (bAutoEngage && !bForceGather)
 	{
-		if (!CombatFaction::IsAlive(AutoEngageTarget) || !CombatFaction::AreHostile(GetOwner(), AutoEngageTarget))
+		if (!CombatFaction::IsAlive(AutoEngageTarget) || !CombatFaction::AreHostile(GetOwner(), AutoEngageTarget)
+			|| !IsWithinAutoEngageLeash(AutoEngageTarget, 1.3f))
 		{
 			AutoEngageTarget = FindAutoEngageTarget();
 		}
@@ -167,6 +182,7 @@ AActor* USummonAIComponent::FindAutoEngageTarget() const
 	{
 		AActor* Candidate = Overlap.GetActor();
 		if (!CombatFaction::AreHostile(Self, Candidate) || !CombatFaction::IsAlive(Candidate)) continue;
+		if (!IsWithinAutoEngageLeash(Candidate, 1.f)) continue;
 
 		const float DistSq = FVector::DistSquared(Self->GetActorLocation(), Candidate->GetActorLocation());
 		if (DistSq < NearestDistSq)
@@ -176,6 +192,15 @@ AActor* USummonAIComponent::FindAutoEngageTarget() const
 		}
 	}
 	return Nearest;
+}
+
+
+// 자동 교전 범위 제한: 플레이어 곁을 너무 멀리 떠나 사냥하지 않도록 플레이어 기준 거리로 거름
+bool USummonAIComponent::IsWithinAutoEngageLeash(const AActor* Candidate, float Scale) const
+{
+	if (AutoEngageLeashRadius <= 0.f || !IsValid(OwnerPlayer) || !Candidate) return true;
+
+	return FVector::Dist(OwnerPlayer->GetActorLocation(), Candidate->GetActorLocation()) <= AutoEngageLeashRadius * Scale;
 }
 
 
@@ -242,17 +267,41 @@ void USummonAIComponent::OnTargetKilled(AActor* Victim, float VictimRewardEXP)
 }
 
 
-// 따라다니기: 플레이어 뒤 자기 자리로 이동. 플레이어와 많이 벌어졌으면 이동속도를 올려서 따라잡음
+// 따라다니기: 플레이어와 FollowStartDistance보다 멀어지면 따라가서 FollowStopDistance 안에서 멈춤("모여" 중에는 바짝 붙음).
+// 많이 벌어졌으면 이동속도를 올려서 따라잡음
 void USummonAIComponent::UpdateFollow(AAIController* AICon)
 {
 	if (!IsValid(OwnerPlayer)) return;
 
 	const FVector MyLocation = GetOwner()->GetActorLocation();
-	const bool bFarBehind = FVector::Dist2D(MyLocation, OwnerPlayer->GetActorLocation()) > CatchUpDistance;
-	ApplySpeedMultiplier(bFarBehind ? CatchUpSpeedMultiplier : 1.f);
+	const float DistToPlayer = FVector::Dist2D(MyLocation, OwnerPlayer->GetActorLocation());
+	ApplySpeedMultiplier(DistToPlayer > CatchUpDistance ? CatchUpSpeedMultiplier : 1.f);
 
 	const FVector SlotLocation = GetFollowSlotLocation();
-	if (FVector::Dist2D(MyLocation, SlotLocation) > FollowAcceptanceRadius)
+
+	// "모여" 커맨드 중: 플레이어 뒤 자기 자리까지 바짝 모임
+	if (bForceGather)
+	{
+		if (FVector::Dist2D(MyLocation, SlotLocation) > FollowAcceptanceRadius)
+		{
+			AICon->MoveToLocation(SlotLocation, FollowAcceptanceRadius * 0.5f);
+		}
+		return;
+	}
+
+	// 평소: 거리 여유를 두고 따라감. Start보다 멀어지면 출발, Stop 안으로 들어오면 그 자리에서 멈춤
+	if (!bFollowing && DistToPlayer > FollowStartDistance)
+	{
+		bFollowing = true;
+	}
+	else if (bFollowing && DistToPlayer <= FollowStopDistance)
+	{
+		bFollowing = false;
+		AICon->StopMovement();
+		ApplySpeedMultiplier(1.f);
+	}
+
+	if (bFollowing)
 	{
 		AICon->MoveToLocation(SlotLocation, FollowAcceptanceRadius * 0.5f);
 	}
@@ -278,6 +327,7 @@ void USummonAIComponent::TeleportToPlayer()
 	SelfDefenseTarget = nullptr;
 	bSelfDefenseEngaged = false;
 	bWandering = false;
+	bFollowing = false;
 	ApplySpeedMultiplier(1.f);
 
 	if (AAIController* AICon = GetAIController())

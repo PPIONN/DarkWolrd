@@ -41,13 +41,23 @@ void AMagicOrbProjectile::BeginPlay()
 	CollisionSphere->OnComponentBeginOverlap.AddDynamic(this, &AMagicOrbProjectile::OnCollisionSphereBeginOverlap);
 }
 
-// Launch: 캐스터에게서 분리하고 지정한 방향으로 발사 속도를 부여함
-void AMagicOrbProjectile::Launch(const FVector& Direction)
+// Launch: 캐스터에게서 분리하고 지정한 방향으로 발사 속도를 부여함.
+// HomingTarget이 있으면(락온 중) 날아가는 동안 그 대상 쪽으로 계속 방향을 틀어 따라감(유도탄)
+void AMagicOrbProjectile::Launch(const FVector& Direction, AActor* HomingTarget)
 {
 	if (bLaunched) return;
 	bLaunched = true;
 
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+	if (HomingTarget && HomingTarget->GetRootComponent() && HomingAcceleration > 0.f)
+	{
+		ProjectileMovement->bIsHomingProjectile = true;
+		ProjectileMovement->HomingAccelerationMagnitude = HomingAcceleration;
+		ProjectileMovement->HomingTargetComponent = HomingTarget->GetRootComponent();
+		// 유도 가속이 속도를 계속 올리지 않도록 원래 속도로 제한
+		ProjectileMovement->MaxSpeed = Speed;
+	}
 
 	ProjectileMovement->Activate(true);
 	ProjectileMovement->Velocity = Direction.GetSafeNormal() * Speed;

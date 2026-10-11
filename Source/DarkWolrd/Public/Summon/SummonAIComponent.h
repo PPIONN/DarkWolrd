@@ -16,6 +16,8 @@ class AAIController;
 //   1  = 자기방어 중이던 적과 이미 교전을 시작한 상태(엔진)
 //   2  = 플레이어가 현재 락온 중인 대상
 //   3  = 자신을 공격한 적(아직 교전 시작 전)
+//   4  = 협공: 플레이어가 최근에 때린 적, 또는 플레이어를 때린 적 (MonsterCompanion의 AssistMemoryTime·AssistRadius)
+//   5  = 자동 교전(bAutoEngage, 몬스터대전 등)
 //   (없음) = 플레이어 뒤를 따라다님. 플레이어가 한동안 가만히 있으면 주변을 천천히 배회함
 // 같은 우선순위끼리는 새로 끼어들지 않고 기존에 하던 행동을 그대로 유지한다.
 //
@@ -30,17 +32,26 @@ public:
 
 	// ─── 따라다니기 ───────────────────────────────────────
 
-	// FollowDistance: 전투가 없을 때 플레이어 뒤쪽으로 떨어져 서 있는 거리
+	// FollowStartDistance / FollowStopDistance: 플레이어와 FollowStartDistance보다 멀어지면 따라가기 시작해서
+	// FollowStopDistance 안으로 들어오면 멈춤. 그 사이 거리에서는 플레이어가 조금 움직여도 제자리에 있어 바짝 붙어 끊기듯 따라오지 않음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Follow")
+	float FollowStartDistance = 800.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Follow")
+	float FollowStopDistance = 500.f;
+
+	// FollowDistance: 따라갈 때 향하는 자리(플레이어 뒤쪽)까지의 거리. 소환수마다 자리 방향이 달라 자연스럽게 흩어져 멈춤.
+	// "모여"(4+1) 커맨드 중에는 실제로 이 자리까지 바짝 모임
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Follow")
 	float FollowDistance = 220.f;
 
-	// FollowAcceptanceRadius: 자기 자리(FollowDistance 지점)에서 이 거리 안이면 이동하지 않고 대기
+	// FollowAcceptanceRadius: "모여" 커맨드 중 자기 자리에서 이 거리 안이면 이동하지 않고 대기
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Follow")
 	float FollowAcceptanceRadius = 80.f;
 
 	// CatchUpDistance / CatchUpSpeedMultiplier: 플레이어와 이 거리 이상 벌어지면 이동속도를 배율만큼 올려서 따라잡음
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Follow")
-	float CatchUpDistance = 600.f;
+	float CatchUpDistance = 1200.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Follow")
 	float CatchUpSpeedMultiplier = 1.6f;
@@ -78,15 +89,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Wander")
 	float WanderSpeedMultiplier = 0.45f;
 
-	// ─── 자동 교전 (몬스터대전 등) ───────────────────────────────────────
+	// ─── 자동 교전 (필드 자동 사냥, 몬스터대전) ───────────────────────────────────────
 
-	// bAutoEngage: 켜면 우선순위 1~3이 없을 때 AutoEngageRadius 안의 가장 가까운 적을 스스로 찾아 싸움(우선순위 4).
-	// 필드에서는 기본으로 꺼져 있고, 몬스터대전 중에만 아레나가 켬. "4+1"(모여) 명령 중에는 동작하지 않음
+	// bAutoEngage: 켜면 우선순위 1~4가 없을 때 AutoEngageRadius 안의 가장 가까운 적을 스스로 찾아 싸움(우선순위 5).
+	// 필드에서는 소환할 때 MonsterCompanion의 bSummonAutoHunt 값으로, 몬스터대전 중에는 아레나가 켬.
+	// "4+1"(모여) 명령 중에는 동작하지 않음 (공격받거나 "4+2" 명령을 하면 다시 사냥)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Auto Engage")
 	bool bAutoEngage = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Auto Engage")
 	float AutoEngageRadius = 2500.f;
+
+	// AutoEngageLeashRadius: 자동 교전 대상은 플레이어에게서 이 거리 안에 있는 적만 고름 (0이면 제한 없음, 몬스터대전 중).
+	// 쫓던 대상이 이 거리의 1.3배보다 멀어지면 포기하고 다른 대상을 찾음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Summon AI|Auto Engage")
+	float AutoEngageLeashRadius = 0.f;
 
 	// ActivateSummonAI: 이 몬스터가 플레이어의 소환수로 전투에 참여함. OwnerPlayer를 등록하고 판단 루프를 시작함
 	// (이름에 SummonAI를 붙인 이유: UActorComponent에 이미 다른 시그니처의 Activate()가 있어 이름 충돌 방지)
@@ -120,10 +137,13 @@ private:
 	// DecideTarget: 우선순위 규칙에 따라 지금 싸워야 할 대상을 고름. 없으면 nullptr(따라다니기 상태)
 	AActor* DecideTarget();
 
-	// FindAutoEngageTarget: AutoEngageRadius 안에서 살아있는 가장 가까운 적대 액터
+	// FindAutoEngageTarget: AutoEngageRadius 안(그리고 플레이어 기준 AutoEngageLeashRadius 안)에서 살아있는 가장 가까운 적대 액터
 	AActor* FindAutoEngageTarget() const;
 
-	// UpdateFollow: 전투 대상이 없을 때 플레이어 뒤 자기 자리로 이동하고, 많이 벌어졌으면 속도를 올림
+	// IsWithinAutoEngageLeash: 대상이 플레이어에게서 (AutoEngageLeashRadius × Scale) 안에 있는지. 제한이 없으면 항상 true
+	bool IsWithinAutoEngageLeash(const AActor* Candidate, float Scale) const;
+
+	// UpdateFollow: 전투 대상이 없을 때 거리 여유를 두고 플레이어를 따라감(Start/Stop 거리), 많이 벌어졌으면 속도를 올림
 	void UpdateFollow(AAIController* AICon);
 
 	// GetFollowSlotLocation: FollowSlotIndex에 해당하는 플레이어 뒤쪽 자리의 월드 위치
@@ -153,6 +173,9 @@ private:
 
 	// bForceGather: "4+1" 커맨드로 켜짐. 자신이 공격받기 전까지는 계속 플레이어 곁에 모임
 	bool bForceGather = false;
+
+	// bFollowing: 플레이어를 따라가는 중인지 (FollowStartDistance를 넘으면 켜지고 FollowStopDistance 안에 들어오면 꺼짐)
+	bool bFollowing = false;
 
 	// PlayerStillTime: 플레이어 속도가 거의 0인 상태가 이어진 시간 (넉백 등으로 밀리는 중엔 배회하지 않도록)
 	float PlayerStillTime = 0.f;
