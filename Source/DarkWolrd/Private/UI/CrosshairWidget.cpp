@@ -24,7 +24,7 @@ TSharedRef<SWidget> UCrosshairWidget::RebuildWidget()
 		{
 			UCanvasPanelSlot* BarSlot = nullptr;
 			UCanvasPanelSlot* OutlineSlot = nullptr;
-			AddBar(Root, ScreenCenter, CrosshairColor, BarSlot, OutlineSlot);
+			AddBar(Root, ScreenCenter, CrosshairColor, CrosshairOutlineColor, BarSlot, OutlineSlot);
 			LineSlots.Add(BarSlot);
 			LineOutlineSlots.Add(OutlineSlot);
 		}
@@ -49,11 +49,11 @@ TSharedRef<SWidget> UCrosshairWidget::RebuildWidget()
 			UCanvasPanelSlot* OutlineSlot = nullptr;
 
 			// 가로 막대: 모서리에서 안쪽으로
-			AddBar(LockOnMarker, FVector2D(0.5f, 0.5f), LockOnColor, BarSlot, OutlineSlot);
+			AddBar(LockOnMarker, FVector2D(0.5f, 0.5f), LockOnColor, FLinearColor(0.f, 0.f, 0.f, 0.6f), BarSlot, OutlineSlot);
 			SetBarRect(BarSlot, OutlineSlot, CornerPoint + FVector2D(-Corner.X * Arm * 0.5f, 0.f), FVector2D(Arm, Thick));
 
 			// 세로 막대: 모서리에서 안쪽으로
-			AddBar(LockOnMarker, FVector2D(0.5f, 0.5f), LockOnColor, BarSlot, OutlineSlot);
+			AddBar(LockOnMarker, FVector2D(0.5f, 0.5f), LockOnColor, FLinearColor(0.f, 0.f, 0.f, 0.6f), BarSlot, OutlineSlot);
 			SetBarRect(BarSlot, OutlineSlot, CornerPoint + FVector2D(0.f, -Corner.Y * Arm * 0.5f), FVector2D(Thick, Arm));
 		}
 		LockOnMarker->SetVisibility(ESlateVisibility::Collapsed);
@@ -63,12 +63,12 @@ TSharedRef<SWidget> UCrosshairWidget::RebuildWidget()
 }
 
 
-void UCrosshairWidget::AddBar(UCanvasPanel* Parent, const FVector2D& Anchor, const FLinearColor& Color,
+void UCrosshairWidget::AddBar(UCanvasPanel* Parent, const FVector2D& Anchor, const FLinearColor& Color, const FLinearColor& OutlineColor,
 	UCanvasPanelSlot*& OutBarSlot, UCanvasPanelSlot*& OutOutlineSlot)
 {
 	// 테두리를 먼저 추가해야 막대 뒤에 그려짐
 	UImage* Outline = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
-	Outline->SetColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.6f));
+	Outline->SetColorAndOpacity(OutlineColor);
 	OutOutlineSlot = Parent->AddChildToCanvas(Outline);
 
 	UImage* Bar = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
@@ -132,7 +132,7 @@ void UCrosshairWidget::UpdateLockOnMarker()
 	const APawn* OwnerPawn = GetOwningPlayerPawn();
 	const UAbilityComponent* Ability = OwnerPawn ? OwnerPawn->FindComponentByClass<UAbilityComponent>() : nullptr;
 
-	FVector2D ScreenPosition;
+	FVector2D ScreenPosition = FVector2D::ZeroVector;
 	const bool bShow = Ability && Ability->IsLockedOn()
 		&& UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(GetOwningPlayer(), Ability->LockedTarget->GetActorLocation(), ScreenPosition, false);
 
