@@ -18,6 +18,7 @@ class UAnimMontage;
 class UAnimSequence;
 class AMonsterCardPickup;
 class UWidgetComponent;
+class UGameFeelComponent;
 
 // EMonsterGrade: 몬스터 등급. 전투 스탯과는 무관하며, 이 몬스터가 드랍할 수 있는
 // 장비/무기/악세서리의 최고 등급만 결정한다 (장비 등급 체계와 동일).
@@ -173,6 +174,10 @@ public:
 	// WildAIComponent: 야생 몬스터 AI (감지·추격·귀환·순찰). 게임 시작 시 자동으로 켜지고, 소환수로 스폰된 개체에서는 꺼져 있음
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Monster|AI")
 	UWildMonsterAIComponent* WildAIComponent;
+
+	// GameFeelComponent: 피격 시 찌그러짐·히트스톱, 이동 기울기, 소환 등장 크기 연출
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Monster|Game Feel")
+	UGameFeelComponent* GameFeelComponent;
 
 	// ─── 머리 위 HP바 / 피해 숫자 ───────────────────────────────────────
 

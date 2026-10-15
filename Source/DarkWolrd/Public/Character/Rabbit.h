@@ -23,6 +23,7 @@ class UHUDWidget;
 class UCrosshairWidget;
 class UInteractionComponent;
 class UDialogueWidget;
+class UGameFeelComponent;
 
 // FOnRabbitDied: 토끼가 쓰러졌을 때 브로드캐스트 (사망 UI 표시 등에 사용)
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRabbitDied);
@@ -75,6 +76,18 @@ protected:
 
 	// CombatFacingTimeLeft: 공격 후 카메라 방향을 계속 볼 남은 시간(초)
 	float CombatFacingTimeLeft = 0.f;
+
+	// UpdateCameraFeel: 화면 흔들림과 시야각 순간 변화를 적용. 히트스톱 중에도 멈추지 않도록 실제 시간(DeltaTime)으로 돌림
+	void UpdateCameraFeel(float DeltaTime);
+
+	// 타격감 연출 상태: 흔들림 세기(0~1), 시야각 순간 변화량과 그 속도, 상태별 기본 시야각, 흔들림 노이즈 시간
+	float CameraTrauma = 0.f;
+	float FOVKick = 0.f;
+	float FOVKickVelocity = 0.f;
+	float CurrentBaseFOV = 90.f;
+	float ShakeTime = 0.f;
+	FRotator BaseCameraRotation = FRotator::ZeroRotator;
+	float BaseGravityScale = 1.f;
 
 	// HandleDeath: HP가 0이 됐을 때. 입력·이동을 막고 소환수를 거둔 뒤 RespawnDelay 뒤 부활 예약
 	void HandleDeath();
@@ -256,6 +269,62 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
 	float CombatFacingDuration = 1.2f;
 
+	// ─── 타격감 (화면 흔들림·시야각 순간 변화·이동감) ───────────────────────────────────────
+
+	// MaxShakeAngle / ShakeFrequency: 흔들림 세기가 최대(1)일 때 카메라가 흔들리는 각도(도)와 빠르기
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float MaxShakeAngle = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float ShakeFrequency = 15.f;
+
+	// TraumaDecay: 흔들림 세기가 초당 줄어드는 양
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float TraumaDecay = 1.5f;
+
+	// HitCameraTrauma / KillCameraTrauma / HurtCameraTrauma / LandCameraTrauma: 내 공격 적중 / 처치 / 내가 맞음 / 높은 곳 착지 때 흔들림 세기 (0~1, 체감은 제곱)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float HitCameraTrauma = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float KillCameraTrauma = 0.45f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float HurtCameraTrauma = 0.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float LandCameraTrauma = 0.4f;
+
+	// FOVKickFrequency / FOVKickDampingRatio: 시야각 순간 변화가 원래대로 돌아오는 출렁임
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float FOVKickFrequency = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float FOVKickDampingRatio = 0.45f;
+
+	// DashFOVKick: 대시 순간 시야각이 넓어지는 양(도)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Game Feel")
+	float DashFOVKick = 8.f;
+
+	// AttackSquash / DashSquash: 평타 시전·대시 순간 몸 변형 (음수 = 위로 늘어남, 양수 = 납작)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Game Feel")
+	float AttackSquash = -0.08f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Game Feel")
+	float DashSquash = -0.22f;
+
+	// FallGravityMultiplier: 떨어질 때만 중력을 이 배수로 키워서 점프가 둥둥 뜨지 않고 툭 떨어지게 함 (1 = 끔)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Game Feel")
+	float FallGravityMultiplier = 1.6f;
+
+	// AddCameraTrauma: 화면 흔들림 추가 (0~1 누적)
+	UFUNCTION(BlueprintCallable, Category = "Camera|Game Feel")
+	void AddCameraTrauma(float Amount);
+
+	// AddFOVKick: 시야각을 순간 Degrees만큼 바꿨다가 출렁이며 되돌림 (양수 = 넓어짐)
+	UFUNCTION(BlueprintCallable, Category = "Camera|Game Feel")
+	void AddFOVKick(float Degrees);
+
 	// IsAiming: 조준 키를 누르고 있는지
 	UFUNCTION(BlueprintCallable, Category = "Camera|Palworld Style")
 	bool IsAiming() const { return bIsAiming; }
@@ -423,6 +492,10 @@ public:
 	// InteractionComponent: NPC 상호작용(범위+조준 판정, 대화 진행)을 담당하는 컴포넌트
 	UPROPERTY(VisibleAnywhere, Category = "Interaction")
 	UInteractionComponent* InteractionComponent;
+
+	// GameFeelComponent: 늘어남·찌그러짐, 기울기, 히트스톱 연출
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Game Feel")
+	UGameFeelComponent* GameFeelComponent;
 
 	// TSubclassOf<UUserWidget>: UUserWidget을 상속한 클래스(주로 블루프린트 UI)만 받는 타입
 	// InventoryWidgetClass: 에디터에서 지정할 인벤토리 UI의 블루프린트 클래스

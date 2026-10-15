@@ -15,6 +15,8 @@
 #include "Components/WidgetComponent.h"
 #include "UI/MonsterHPBarWidget.h"
 #include "UI/DamageNumberActor.h"
+#include "Character/GameFeelComponent.h"
+#include "Character/Rabbit.h"
 
 // 생성자: Tick 활성화 및 기본 설정
 ABaseMonster::ABaseMonster()
@@ -23,6 +25,7 @@ ABaseMonster::ABaseMonster()
 
 	SummonAIComponent = CreateDefaultSubobject<USummonAIComponent>(TEXT("SummonAIComponent"));
 	WildAIComponent = CreateDefaultSubobject<UWildMonsterAIComponent>(TEXT("WildAIComponent"));
+	GameFeelComponent = CreateDefaultSubobject<UGameFeelComponent>(TEXT("GameFeelComponent"));
 
 	// 레벨에 배치한 몬스터뿐 아니라 코드로 스폰한 몬스터(필드보스, 던전 웨이브, 소환수)도 AI 컨트롤러가 붙도록 함
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
@@ -160,6 +163,27 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 		if (bShowDamageNumbers)
 		{
 			SpawnDamageNumber(ActualDamage, DamageCauser);
+		}
+
+		// 타격감: 맞은 몬스터가 납작해지며 잠깐 멈춤. 플레이어가 때렸으면 더 길게 멈추고 화면도 흔들림.
+		// 근접 공격(투사체가 아님)이면 때린 쪽도 같이 멈춰서 "걸리는" 손맛을 줌
+		const bool bKilled = CurrentHP <= 0.f;
+		AActor* Attacker = (DamageCauser && !DamageCauser->IsA<APawn>() && DamageCauser->GetInstigator()) ? DamageCauser->GetInstigator() : DamageCauser;
+		ARabbit* PlayerAttacker = Cast<ARabbit>(Attacker);
+		if (GameFeelComponent)
+		{
+			GameFeelComponent->PlayHitReaction(PlayerAttacker != nullptr, bKilled);
+		}
+		if (PlayerAttacker)
+		{
+			PlayerAttacker->AddCameraTrauma(bKilled ? PlayerAttacker->KillCameraTrauma : PlayerAttacker->HitCameraTrauma);
+		}
+		if (DamageCauser && DamageCauser->IsA<APawn>())
+		{
+			if (UGameFeelComponent* AttackerFeel = DamageCauser->FindComponentByClass<UGameFeelComponent>())
+			{
+				AttackerFeel->HitStop(AttackerFeel->HitStopLight);
+			}
 		}
 	}
 
@@ -353,19 +377,18 @@ FText ABaseMonster::GetMonsterDisplayName() const
 // 소환 등장 연출: 메시 크기를 거의 0에서 시작해 살짝 넘쳤다가(ease-out-back) 원래 크기로 맞춤. 발밑 기준으로 커지므로 땅에서 솟아나는 느낌
 void ABaseMonster::PlaySummonAppear(float Duration)
 {
-	USkeletalMeshComponent* MeshComp = GetMesh();
-	if (!MeshComp || Duration <= 0.f) return;
+	// 크기는 GameFeelComponent를 거쳐서 바꿔야 피격 찌그러짐 등 다른 연출과 겹쳐도 원래 크기가 틀어지지 않음
+	if (!GameFeelComponent || Duration <= 0.f) return;
 
-	const FVector TargetScale = MeshComp->GetRelativeScale3D();
 	const float StartTime = GetWorld()->GetTimeSeconds();
-	MeshComp->SetRelativeScale3D(TargetScale * 0.05f);
+	GameFeelComponent->SetAppearScale(0.05f);
 
-	GetWorldTimerManager().SetTimer(SummonAppearTimerHandle, FTimerDelegate::CreateWeakLambda(this, [this, MeshComp, TargetScale, StartTime, Duration]()
+	GetWorldTimerManager().SetTimer(SummonAppearTimerHandle, FTimerDelegate::CreateWeakLambda(this, [this, StartTime, Duration]()
 	{
 		const float Alpha = FMath::Clamp((GetWorld()->GetTimeSeconds() - StartTime) / Duration, 0.f, 1.f);
 		if (Alpha >= 1.f)
 		{
-			MeshComp->SetRelativeScale3D(TargetScale);
+			GameFeelComponent->SetAppearScale(1.f);
 			GetWorldTimerManager().ClearTimer(SummonAppearTimerHandle);
 			return;
 		}
@@ -373,6 +396,6 @@ void ABaseMonster::PlaySummonAppear(float Duration)
 		const float Overshoot = 1.70158f;
 		const float T = Alpha - 1.f;
 		const float Eased = 1.f + (Overshoot + 1.f) * T * T * T + Overshoot * T * T;
-		MeshComp->SetRelativeScale3D(TargetScale * FMath::Max(Eased, 0.05f));
+		GameFeelComponent->SetAppearScale(FMath::Max(Eased, 0.05f));
 	}), 0.016f, true);
 }

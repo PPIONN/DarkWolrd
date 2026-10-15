@@ -24,6 +24,7 @@
 #include "Interaction/InteractionComponent.h"
 #include "NPC/NPCBase.h"
 #include "Components/CapsuleComponent.h"
+#include "Character/GameFeelComponent.h"
 
 
 // 생성자: 스프링암·카메라 컴포넌트를 만들고 캐릭터 이동 방식을 설정
@@ -61,6 +62,12 @@ ARabbit::ARabbit()
 	StatComponent = CreateDefaultSubobject<UCharacterStatComponent>(TEXT("StatComponent"));
 	CompanionComponent = CreateDefaultSubobject<UMonsterCompanionComponent>(TEXT("CompanionComponent"));
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
+	GameFeelComponent = CreateDefaultSubobject<UGameFeelComponent>(TEXT("GameFeelComponent"));
+
+	// 조작감: 빨리 출발하고 빨리 멈추며, 공중에서도 방향을 어느 정도 틀 수 있게 (엔진 기본값은 가속·감속 2048, 공중 조작 0.05)
+	GetCharacterMovement()->MaxAcceleration = 4096.f;
+	GetCharacterMovement()->BrakingDecelerationWalking = 3072.f;
+	GetCharacterMovement()->AirControl = 0.35f;
 }
 
 
@@ -77,6 +84,14 @@ void ARabbit::BeginPlay()
 
 	// 쓰러졌을 때 돌아올 부활 지점 = 이 레벨에서 처음 선 위치
 	RespawnTransform = GetActorTransform();
+
+	// 타격감 연출의 기준값: 지금 시야각·카메라 회전·중력
+	if (Camera)
+	{
+		CurrentBaseFOV = Camera->FieldOfView;
+		BaseCameraRotation = Camera->GetRelativeRotation();
+	}
+	BaseGravityScale = GetCharacterMovement()->GravityScale;
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
@@ -135,6 +150,11 @@ void ARabbit::Tick(float DeltaTime)
 	TimeSinceLastInput += DeltaTime;
 
 	UpdateCameraAndFacing(DeltaTime);
+	UpdateCameraFeel(GetWorld()->GetDeltaSeconds());
+
+	// 떨어질 때만 중력을 키워서 점프 끝이 둥둥 뜨지 않게 함
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	MoveComp->GravityScale = (MoveComp->IsFalling() && MoveComp->Velocity.Z < 0.f) ? BaseGravityScale * FallGravityMultiplier : BaseGravityScale;
 
 	// 머리 Look At 타겟: 평소에는 카메라가 보는 방향의 먼 지점.
 	// 탐험 상태로 달리는 중에는 몸이 달리는 방향을 보므로 고개도 정면(달리는 방향)을 봄.
@@ -332,6 +352,10 @@ void ARabbit::Attack()
 		}
 		CombatFacingTimeLeft = CombatFacingDuration;
 		StartAttackMoveLock();
+		if (GameFeelComponent)
+		{
+			GameFeelComponent->AddSquash(AttackSquash);
+		}
 	}
 }
 
@@ -543,6 +567,13 @@ void ARabbit::TryDash()
 
 	SetActorLocation(TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
 
+	// 순간이동하며 몸이 길쭉해지고 시야가 확 넓어졌다가 돌아옴
+	if (GameFeelComponent)
+	{
+		GameFeelComponent->AddSquash(DashSquash);
+	}
+	AddFOVKick(DashFOVKick);
+
 	if (bDashCooldownEnabled)
 	{
 		DashCooldownEndTime = GetWorld()->GetTimeSeconds() + DashCooldown;
@@ -572,6 +603,13 @@ void ARabbit::ClearDashLandLock()
 void ARabbit::Landed(const FHitResult& Hit)
 {
 	Super::Landed(Hit);
+
+	// 높은 곳에서 떨어졌으면 낙하 속도에 비례해 화면이 쿵 흔들림 (몸 찌그러짐은 GameFeelComponent가 처리)
+	if (GameFeelComponent)
+	{
+		const float LandAlpha = FMath::Clamp((GameFeelComponent->GetLastFallSpeed() - 700.f) / 800.f, 0.f, 1.f);
+		AddCameraTrauma(LandCameraTrauma * LandAlpha);
+	}
 
 	if (!bIsDashFalling) return;
 	bIsDashFalling = false;
@@ -726,6 +764,20 @@ float ARabbit::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, A
 	{
 		AActor* Attacker = (!DamageCauser->IsA<APawn>() && DamageCauser->GetInstigator()) ? DamageCauser->GetInstigator() : DamageCauser;
 		CompanionComponent->NotifyPlayerAttacked(Attacker);
+	}
+
+	// 타격감: 몸이 움찔 찌그러지며 잠깐 멈추고 화면이 흔들림. 근접 공격이면 때린 몬스터도 같이 멈춤
+	if (GameFeelComponent)
+	{
+		GameFeelComponent->PlayHitReaction(true, StatComponent->CurrentHP <= 0.f);
+	}
+	AddCameraTrauma(HurtCameraTrauma);
+	if (DamageCauser && DamageCauser->IsA<APawn>())
+	{
+		if (UGameFeelComponent* AttackerFeel = DamageCauser->FindComponentByClass<UGameFeelComponent>())
+		{
+			AttackerFeel->HitStop(AttackerFeel->HitStopHeavy);
+		}
 	}
 
 	if (StatComponent->CurrentHP <= 0.f)
@@ -900,6 +952,39 @@ void ARabbit::UpdateCameraAndFacing(float DeltaTime)
 	}
 	if (Camera)
 	{
-		Camera->SetFieldOfView(FMath::FInterpTo(Camera->FieldOfView, bIsAiming ? AimFOV : ExploreFOV, DeltaTime, CameraBlendSpeed));
+		// 실제 시야각은 UpdateCameraFeel에서 순간 변화량을 더해서 적용
+		CurrentBaseFOV = FMath::FInterpTo(CurrentBaseFOV, bIsAiming ? AimFOV : ExploreFOV, DeltaTime, CameraBlendSpeed);
 	}
+}
+
+
+void ARabbit::AddCameraTrauma(float Amount)
+{
+	CameraTrauma = FMath::Clamp(CameraTrauma + Amount, 0.f, 1.f);
+}
+
+
+void ARabbit::AddFOVKick(float Degrees)
+{
+	FOVKick += Degrees;
+}
+
+
+// 흔들림은 세기의 제곱에 비례해서, 약한 타격은 은은하고 강한 타격만 확 흔들림. 노이즈로 흔들어서 덜 기계적으로 보임
+void ARabbit::UpdateCameraFeel(float DeltaTime)
+{
+	if (!Camera) return;
+
+	UGameFeelComponent::StepSpring(FOVKick, FOVKickVelocity, 0.f, FOVKickFrequency, FOVKickDampingRatio, DeltaTime);
+	Camera->SetFieldOfView(CurrentBaseFOV + FOVKick);
+
+	CameraTrauma = FMath::Max(0.f, CameraTrauma - TraumaDecay * DeltaTime);
+	ShakeTime += DeltaTime;
+	const float ShakeAngle = CameraTrauma * CameraTrauma * MaxShakeAngle;
+	const float NoiseTime = ShakeTime * ShakeFrequency;
+	const FRotator Shake(
+		ShakeAngle * FMath::PerlinNoise1D(NoiseTime),
+		ShakeAngle * FMath::PerlinNoise1D(NoiseTime + 37.1f),
+		ShakeAngle * 0.5f * FMath::PerlinNoise1D(NoiseTime + 71.3f));
+	Camera->SetRelativeRotation(BaseCameraRotation + Shake);
 }
