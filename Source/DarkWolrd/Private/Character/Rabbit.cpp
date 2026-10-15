@@ -25,6 +25,7 @@
 #include "NPC/NPCBase.h"
 #include "Components/CapsuleComponent.h"
 #include "Character/GameFeelComponent.h"
+#include "Character/RabbitFaceComponent.h"
 
 
 // 생성자: 스프링암·카메라 컴포넌트를 만들고 캐릭터 이동 방식을 설정
@@ -63,6 +64,7 @@ ARabbit::ARabbit()
 	CompanionComponent = CreateDefaultSubobject<UMonsterCompanionComponent>(TEXT("CompanionComponent"));
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 	GameFeelComponent = CreateDefaultSubobject<UGameFeelComponent>(TEXT("GameFeelComponent"));
+	FaceComponent = CreateDefaultSubobject<URabbitFaceComponent>(TEXT("FaceComponent"));
 
 	// 조작감: 빨리 출발하고 빨리 멈추며, 공중에서도 방향을 어느 정도 틀 수 있게 (엔진 기본값은 가속·감속 2048, 공중 조작 0.05)
 	GetCharacterMovement()->MaxAcceleration = 4096.f;
@@ -355,6 +357,10 @@ void ARabbit::Attack()
 		if (GameFeelComponent)
 		{
 			GameFeelComponent->AddSquash(AttackSquash);
+		}
+		if (FaceComponent)
+		{
+			FaceComponent->PlayExpression(ERabbitExpression::Angry, 0.6f);
 		}
 	}
 }
@@ -766,6 +772,12 @@ float ARabbit::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, A
 		CompanionComponent->NotifyPlayerAttacked(Attacker);
 	}
 
+	// 표정: 맞으면 질끈 감고 찡그림
+	if (FaceComponent)
+	{
+		FaceComponent->PlayExpression(ERabbitExpression::Hurt, 0.45f);
+	}
+
 	// 타격감: 몸이 움찔 찌그러지며 잠깐 멈추고 화면이 흔들림. 근접 공격이면 때린 몬스터도 같이 멈춤
 	if (GameFeelComponent)
 	{
@@ -810,6 +822,11 @@ void ARabbit::HandleDeath()
 		AbilityComponent->LockedTarget = nullptr;
 	}
 
+	if (FaceComponent)
+	{
+		FaceComponent->SetBaseExpression(ERabbitExpression::Sad);
+	}
+
 	OnDied.Broadcast();
 
 	GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ARabbit::Respawn, RespawnDelay, false);
@@ -833,6 +850,11 @@ void ARabbit::Respawn()
 	{
 		PC->SetControlRotation(RespawnTransform.Rotator());
 		EnableInput(PC);
+	}
+
+	if (FaceComponent)
+	{
+		FaceComponent->SetBaseExpression(ERabbitExpression::Neutral);
 	}
 
 	bIsDead = false;

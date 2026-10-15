@@ -5,6 +5,7 @@
 #include "Summon/SummonAIComponent.h"
 #include "Stats/CharacterStatComponent.h"
 #include "UI/GameAnnouncementSubsystem.h"
+#include "Character/RabbitFaceComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "NiagaraFunctionLibrary.h"
@@ -29,6 +30,12 @@ static FText GetMonsterClassName(TSubclassOf<ABaseMonster> MonsterClass)
 void UMonsterCompanionComponent::AddCard(const FMonsterCardEntry& CardData)
 {
 	HeldCards.Add(CardData);
+
+	// 카드를 주우면 토끼가 깜짝 놀람
+	if (URabbitFaceComponent* Face = GetOwner()->FindComponentByClass<URabbitFaceComponent>())
+	{
+		Face->PlayExpression(ERabbitExpression::Surprised, 1.f);
+	}
 
 	if (bAutoRegisterCards)
 	{
@@ -120,6 +127,10 @@ void UMonsterCompanionComponent::Resummon()
 	if (ActiveSummons.Num() > 0)
 	{
 		LastResummonTime = GetWorld()->GetTimeSeconds();
+		if (URabbitFaceComponent* Face = GetOwner()->FindComponentByClass<URabbitFaceComponent>())
+		{
+			Face->PlayExpression(ERabbitExpression::Happy, 0.8f);
+		}
 	}
 	else
 	{

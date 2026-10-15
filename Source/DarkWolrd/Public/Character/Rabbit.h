@@ -24,6 +24,7 @@ class UCrosshairWidget;
 class UInteractionComponent;
 class UDialogueWidget;
 class UGameFeelComponent;
+class URabbitFaceComponent;
 
 // FOnRabbitDied: 토끼가 쓰러졌을 때 브로드캐스트 (사망 UI 표시 등에 사용)
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRabbitDied);
@@ -402,9 +403,9 @@ public:
 	float MeditateMPPerSecond = 10.f;
 
 	// AttackMoveLockDuration: 기본공격 시전 시 이동이 잠기는 시간(초). 공격 몽타주 재생 시간에 맞춰 공격속도 느낌을 냄
-	// (기본값 2.67은 현재 기본공격 몽타주 길이에 맞춘 것 — 몽타주가 바뀌면 이 값도 같이 조정)
+	// (기본값 0.45는 새 시전 애니메이션 Rabbit_Cast에서 팔을 뻗고 거둬들이기까지의 시간 — 몽타주가 바뀌면 이 값도 같이 조정)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
-	float AttackMoveLockDuration = 2.67f;
+	float AttackMoveLockDuration = 0.45f;
 
 	// ForwardMoveSpeed: 카메라가 보는 방향으로 순수하게(옆/뒤 섞임 없이) 이동할 때의 기본(걷기) 속도
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
@@ -496,6 +497,10 @@ public:
 	// GameFeelComponent: 늘어남·찌그러짐, 기울기, 히트스톱 연출
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Game Feel")
 	UGameFeelComponent* GameFeelComponent;
+
+	// FaceComponent: 눈 깜빡임과 표정(웃음·화남·아픔 등). 메시의 모프 타깃을 직접 움직임
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Face")
+	URabbitFaceComponent* FaceComponent;
 
 	// TSubclassOf<UUserWidget>: UUserWidget을 상속한 클래스(주로 블루프린트 UI)만 받는 타입
 	// InventoryWidgetClass: 에디터에서 지정할 인벤토리 UI의 블루프린트 클래스

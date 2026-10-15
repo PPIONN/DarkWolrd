@@ -17,6 +17,7 @@
 #include "UI/DamageNumberActor.h"
 #include "Character/GameFeelComponent.h"
 #include "Character/Rabbit.h"
+#include "Character/RabbitFaceComponent.h"
 
 // 생성자: Tick 활성화 및 기본 설정
 ABaseMonster::ABaseMonster()
@@ -177,6 +178,15 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 		if (PlayerAttacker)
 		{
 			PlayerAttacker->AddCameraTrauma(bKilled ? PlayerAttacker->KillCameraTrauma : PlayerAttacker->HitCameraTrauma);
+		}
+
+		// 내가(또는 내 소환수가) 적을 쓰러뜨리면 토끼가 ^^ 웃음
+		if (bKilled && !bIsPlayerSummon && LastRewardPlayer.IsValid())
+		{
+			if (URabbitFaceComponent* Face = LastRewardPlayer->FindComponentByClass<URabbitFaceComponent>())
+			{
+				Face->PlayExpression(ERabbitExpression::Happy, 1.2f);
+			}
 		}
 		if (DamageCauser && DamageCauser->IsA<APawn>())
 		{
