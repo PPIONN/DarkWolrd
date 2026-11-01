@@ -1,6 +1,0 @@
-[mcp_servers.blender]
-command = 'C:\Users\UserC/.local/bin/uvx.exe'
-args = ["blender-mcp"]
-
-[mcp_servers.higgsfield-bridge]
-url = "https://bridge.higgsfield.ai/mcp"

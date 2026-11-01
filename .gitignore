@@ -31,3 +31,9 @@ dist/
 
 # 마켓플레이스(Fab) 에셋: 라이선스상 원본 공개 배포 금지, 로컬에만 보관
 Content/Vefects/
+
+# 로컬 AI 도구 설정 (개인 경로 포함)
+.codex/
+
+# Visual Studio 새 솔루션 형식
+*.slnx
