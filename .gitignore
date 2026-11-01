@@ -28,3 +28,6 @@ Thumbs.db
 Packaged/
 Package/
 dist/
+
+# 마켓플레이스(Fab) 에셋: 라이선스상 원본 공개 배포 금지, 로컬에만 보관
+Content/Vefects/
