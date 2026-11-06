@@ -8,7 +8,7 @@
 
 | 산출물 | 링크 | 비고 |
 | --- | --- | --- |
-| 설치본 v0.1.0 (Windows x64, zip) | **(업로드 후 입력)** | `DarkWolrd-v0.1.0-Win64.zip` · 520 MB (풀면 793 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
+| 설치본 v0.1.0 (Windows x64, zip) | **[(업로드 후 입력)](https://drive.google.com/file/d/1ouyDW38Jit_8Kr9UnDsuV9dzQ8Sfyde7/view?usp=sharing)** | `DarkWolrd-v0.1.0-Win64.zip` · 520 MB (풀면 793 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
 | 설치 테스트 결과 | [아래 4번](#4-클린-설치-테스트-결과) | 개발 PC에서 설치본으로 자동 점검. 클린 PC 테스트는 아직 안 함 |
 | 빌드 스크립트 | [아래 5번](#5-빌드-스크립트) | [Scripts/BuildRelease.ps1](../../Scripts/BuildRelease.ps1) |
 | 체인지로그 | [아래 6번](#6-체인지로그) | [CHANGELOG.md](../../CHANGELOG.md) |
