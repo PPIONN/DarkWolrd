@@ -8,7 +8,7 @@
 
 | 산출물 | 링크 | 비고 |
 | --- | --- | --- |
-| 설치본 v0.1.0 (Windows x64, zip) | **[(업로드 후 입력)](https://drive.google.com/file/d/1ouyDW38Jit_8Kr9UnDsuV9dzQ8Sfyde7/view?usp=sharing)** | `DarkWolrd-v0.1.0-Win64.zip` · 520 MB (풀면 793 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
+| 설치본 v0.1.0 (Windows x64, zip) | [다운로드](https://drive.google.com/file/d/1ouyDW38Jit_8Kr9UnDsuV9dzQ8Sfyde7/view?usp=sharing) | `DarkWolrd-v0.1.0-Win64.zip` · 520 MB (풀면 793 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
 | 설치 테스트 결과 | [아래 4번](#4-클린-설치-테스트-결과) | 개발 PC에서 설치본으로 자동 점검. 클린 PC 테스트는 아직 안 함 |
 | 빌드 스크립트 | [아래 5번](#5-빌드-스크립트) | [Scripts/BuildRelease.ps1](../../Scripts/BuildRelease.ps1) |
 | 체인지로그 | [아래 6번](#6-체인지로그) | [CHANGELOG.md](../../CHANGELOG.md) |
@@ -76,7 +76,7 @@
 | 엔진 | Unreal Engine 5.8 |
 | 플랫폼 | Windows x64 (Development) |
 | 파일 | `DarkWolrd-v0.1.0-Win64.zip` · 520 MB (압축 해제 793 MB) |
-| 다운로드 | **(업로드 후 입력)** |
+| 다운로드 | [다운로드](https://drive.google.com/file/d/1ouyDW38Jit_8Kr9UnDsuV9dzQ8Sfyde7/view?usp=sharing) |
 | 실행 방법 | zip 압축 해제 → `DarkWolrd.exe` 실행. 구성요소 설치 창이 뜨면 허용하고, "Windows의 PC 보호" 경고가 뜨면 「추가 정보 → 실행」 |
 | 조작 | WASD 이동, 마우스 시점, Shift 달리기, Space 점프, 왼쪽 클릭 마법, 오른쪽 클릭 조준, Q 락온, Y 소환, 4 다음 1 소환수 모으기, 4 다음 2 내 대상 공격, R 명상 |
 | 종료 | Esc를 3초 안에 두 번 |
