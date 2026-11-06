@@ -25,7 +25,7 @@ flowchart LR
 | 엔진 | Unreal Engine 5.8 (C++) |
 | 플랫폼 | Windows 64비트, 키보드+마우스 |
 | IDE | Visual Studio 2022 |
-| 기본 맵 | `/Game/Map/Alice` |
+| 시작 맵 | `/Game/Map/Tutorial` |
 
 ## 실행 방법
 
@@ -33,6 +33,14 @@ flowchart LR
 2. `DarkWolrd.uproject`를 우클릭해 **Generate Visual Studio project files**를 실행합니다.
 3. 생성된 솔루션에서 `DarkWolrdEditor` / `Development Editor` / `Win64`로 빌드합니다.
 4. `DarkWolrd.uproject`를 열고 Play를 누릅니다.
+
+## 설치본 빌드
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Scripts\BuildRelease.ps1 -Version 0.1.0
+```
+
+패키징하고, 만든 설치본으로 튜토리얼을 시작부터 출구까지 자동 플레이해 확인한 뒤, `C:\UnrealProject\Builds`에 zip을 만듭니다. 점검에 실패하면 zip을 만들지 않습니다. 에디터를 켜 둔 채로 빌드할 때는 `-EditorOpen`을 붙입니다.
 
 ## 폴더 구조
 
@@ -42,6 +50,8 @@ flowchart LR
 | `Content/Rabbit` | 플레이어(토끼) 메시·애니메이션·ABP |
 | `Content/Alice` | 몬스터·소환수 에셋 |
 | `Content/Map` | 레벨 |
+| `Content/Audio` | 효과음 (`Scripts/make_sfx.py`로 합성) |
+| `Scripts` | 빌드 스크립트, 효과음 합성·가져오기 |
 | `Docs` | 기획서, 마일스톤, 주간 기록, TIL |
 
 ## 문서
@@ -49,7 +59,9 @@ flowchart LR
 - [1페이지 기획서](Docs/01_OnePagePlan.md)
 - [8주 마일스톤](Docs/02_Milestones.md)
 - [팀 구성](Docs/03_Team.md)
+- [체인지로그](CHANGELOG.md)
 - [주간 기록](Docs/WeeklyLog/)
+- [설치 테스트 결과](Docs/InstallTest/)
 - [TIL](Docs/TIL/)
 
 ## 참고
