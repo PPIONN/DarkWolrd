@@ -20,6 +20,12 @@
 #include "Engine/Engine.h"
 #include "UI/HUDWidget.h"
 #include "UI/CrosshairWidget.h"
+#include "UI/GameAnnouncementSubsystem.h"
+#include "UI/TutorialGuideWidget.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Character/DemoLoopTest.h"
+#include "Misc/CommandLine.h"
 #include "UI/DialogueWidget.h"
 #include "Interaction/InteractionComponent.h"
 #include "NPC/NPCBase.h"
@@ -28,6 +34,11 @@
 #include "Character/RabbitFaceComponent.h"
 
 
+#if !UE_BUILD_SHIPPING
+// -DemoLoopTest로 실행했을 때 도는 자동 점검기. 레벨을 옮겨도 다시 시작되지 않도록 하나만 유지
+static TSharedPtr<FDemoLoopTest> GDemoLoopTest;
+#endif
+
 // 생성자: 스프링암·카메라 컴포넌트를 만들고 캐릭터 이동 방식을 설정
 ARabbit::ARabbit()
 {
@@ -35,6 +46,7 @@ ARabbit::ARabbit()
 
 	// 조준점 위젯: 기본은 코드로 그린 조준점 (BP에서 다른 위젯으로 바꾸거나 비워서 끌 수 있음)
 	CrosshairWidgetClass = UCrosshairWidget::StaticClass();
+	GuideWidgetClass = UTutorialGuideWidget::StaticClass();
 
 	// SpringArm 설정
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
@@ -125,6 +137,16 @@ void ARabbit::BeginPlay()
 			}
 		}
 
+		// 안내 위젯: 조작 안내, 튜토리얼 목표, 화면 알림
+		if (GuideWidgetClass)
+		{
+			GuideWidgetNative = CreateWidget<UTutorialGuideWidget>(PC, GuideWidgetClass);
+			if (GuideWidgetNative)
+			{
+				GuideWidgetNative->AddToViewport(1);
+			}
+		}
+
 		// 대화창 위젯 생성: 평소엔 숨겨져 있다가 Interact() 성공 시에만 보이게 함
 		if (DialogueWidgetClass)
 		{
@@ -136,6 +158,14 @@ void ARabbit::BeginPlay()
 			}
 		}
 	}
+
+#if !UE_BUILD_SHIPPING
+	if (!GDemoLoopTest.IsValid() && FParse::Param(FCommandLine::Get(), TEXT("DemoLoopTest")))
+	{
+		GDemoLoopTest = MakeShared<FDemoLoopTest>(this);
+		GDemoLoopTest->Start();
+	}
+#endif
 }
 
 
@@ -222,6 +252,7 @@ void ARabbit::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 		EIC->BindAction(CommandModifierAction, ETriggerEvent::Started, this, &ARabbit::StartCommandMode);
 		EIC->BindAction(Command1Action,        ETriggerEvent::Started, this, &ARabbit::HandleCommand1);
 		EIC->BindAction(Command2Action,        ETriggerEvent::Started, this, &ARabbit::HandleCommand2);
+		PlayerInputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &ARabbit::HandleQuitKey);
 	}
 }
 
@@ -342,6 +373,8 @@ void ARabbit::Attack()
 	// 쿨다운 등으로 실제로 발동되지 않았으면(false 반환) 이동을 잠글 이유가 없음
 	if (AbilityComponent && AbilityComponent->TryActivateAbility(TEXT("BasicAttack")))
 	{
+		++AttackCount;
+
 		// 쏘는 방향으로 즉시 돌아보고 잠시 그 방향을 유지: 락온 중이면 대상 쪽, 아니면 카메라(조준) 방향
 		float FacingYaw = 0.f;
 		if (GetLockOnTargetYaw(FacingYaw))
@@ -404,6 +437,23 @@ void ARabbit::ToggleLockOn()
 	{
 		AbilityComponent->ToggleLockOn();
 	}
+}
+
+
+// Esc 입력 처리: 첫 번째는 안내만 하고, 3초 안에 다시 누르면 종료
+void ARabbit::HandleQuitKey()
+{
+	static constexpr float QuitKeyWindow = 3.f;
+
+	const float Now = GetWorld()->GetRealTimeSeconds();
+	if (Now - LastQuitKeyTime <= QuitKeyWindow)
+	{
+		UKismetSystemLibrary::QuitGame(this, Cast<APlayerController>(GetController()), EQuitPreference::Quit, false);
+		return;
+	}
+
+	LastQuitKeyTime = Now;
+	UGameAnnouncementSubsystem::AnnounceInWorld(this, NSLOCTEXT("Guide", "QuitConfirm", "Esc를 한 번 더 누르면 게임을 종료합니다"), QuitKeyWindow);
 }
 
 
@@ -765,6 +815,11 @@ float ARabbit::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, A
 
 	StatComponent->ApplyDamage(ActualDamage);
 
+	if (HurtSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, HurtSound, GetActorLocation());
+	}
+
 	// 나를 공격한 적을 소환수들이 함께 공격하도록 알림 (투사체면 쏜 쪽 기준)
 	if (CompanionComponent && DamageCauser)
 	{
@@ -834,6 +889,13 @@ void ARabbit::HandleDeath()
 
 
 // 부활: 처음 등장한 위치로 돌아가 HP/MP를 가득 채우고 다시 조작 가능하게 함
+void ARabbit::SetRespawnPoint()
+{
+	RespawnTransform.SetLocation(GetActorLocation());
+	RespawnTransform.SetRotation(GetActorQuat());
+}
+
+
 void ARabbit::Respawn()
 {
 	SetActorTransform(RespawnTransform, false, nullptr, ETeleportType::TeleportPhysics);
@@ -858,6 +920,12 @@ void ARabbit::Respawn()
 	}
 
 	bIsDead = false;
+
+	// 쓰러질 때 소환수도 사라지므로 다시 부르는 법을 알려줌
+	if (CompanionComponent && CompanionComponent->RegisteredMonsters.Num() > 0)
+	{
+		UGameAnnouncementSubsystem::AnnounceInWorld(this, NSLOCTEXT("Guide", "Respawned", "다시 일어났습니다. Y로 소환수를 불러보세요"), 4.f);
+	}
 }
 
 

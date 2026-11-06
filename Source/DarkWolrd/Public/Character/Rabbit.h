@@ -25,6 +25,8 @@ class UInteractionComponent;
 class UDialogueWidget;
 class UGameFeelComponent;
 class URabbitFaceComponent;
+class UTutorialGuideWidget;
+class USoundBase;
 
 // FOnRabbitDied: 토끼가 쓰러졌을 때 브로드캐스트 (사망 UI 표시 등에 사용)
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRabbitDied);
@@ -55,6 +57,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	float RespawnDelay = 3.f;
 
+	// HurtSound: 맞았을 때 재생할 소리. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	USoundBase* HurtSound = nullptr;
+
 	// OnDied: 쓰러질 때 브로드캐스트 (블루프린트에서 사망 화면 등을 띄우는 용도)
 	UPROPERTY(BlueprintAssignable, Category = "Combat")
 	FOnRabbitDied OnDied;
@@ -74,6 +80,8 @@ protected:
 	bool GetLockOnTargetYaw(float& OutYaw) const;
 
 	bool bIsAiming = false;
+
+	int32 AttackCount = 0;
 
 	// CombatFacingTimeLeft: 공격 후 카메라 방향을 계속 볼 남은 시간(초)
 	float CombatFacingTimeLeft = 0.f;
@@ -130,6 +138,11 @@ protected:
 	// ToggleLockOn: Q 입력 처리. AbilityComponent에 락온 토글을 위임
 	void ToggleLockOn();
 
+	// HandleQuitKey: Esc 입력 처리. 3초 안에 두 번 누르면 게임을 끝냄 (실수로 한 번 눌러 꺼지지 않도록)
+	void HandleQuitKey();
+
+	float LastQuitKeyTime = -100.f;
+
 	// Interact: F 입력 처리. InteractionComponent에 상호작용을 위임하고, 성공하면 대화창에 대사를 표시.
 	// 상호작용 가능한 대상이 없는데 대화창이 열려있으면, 그걸 닫는 용도로도 씀
 	void Interact();
@@ -174,6 +187,14 @@ protected:
 public:
 	// GetTimeSinceLastInput: 마지막 입력 이후 지난 시간(초). 소환수 AI가 "플레이어가 가만히 있는지" 판단할 때 사용
 	float GetTimeSinceLastInput() const { return TimeSinceLastInput; }
+
+	// GetAttackCount: 지금까지 실제로 발동한 공격 횟수 (튜토리얼 목표 판정용)
+	int32 GetAttackCount() const { return AttackCount; }
+
+	UTutorialGuideWidget* GetGuideWidget() const { return GuideWidgetNative; }
+
+	// SetRespawnPoint: 쓰러졌을 때 돌아올 곳을 지금 위치로 옮김 (튜토리얼 목표를 달성할 때마다 호출)
+	void SetRespawnPoint();
 
 	// ─── 디버그/테스트용 ───────────────────────────────────────
 	// PIE 중 `(콘솔 열기) 키를 누르고 "DebugTakeDamage 20" 처럼 입력해서 HUD의 HP/MP 바가
@@ -521,6 +542,17 @@ public:
 
 	UPROPERTY()
 	UCrosshairWidget* CrosshairWidgetNative = nullptr;
+
+	// GuideWidgetClass: 조작 안내·튜토리얼 목표·화면 알림 위젯. 기본은 코드로 그린 UTutorialGuideWidget, 비워두면 안내 없음
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UTutorialGuideWidget> GuideWidgetClass;
+
+	UPROPERTY()
+	UTutorialGuideWidget* GuideWidgetNative = nullptr;
+
+	// GuideStepSound: 튜토리얼 목표를 달성할 때 재생할 소리. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+	USoundBase* GuideStepSound = nullptr;
 
 	// HUDWidgetNative: 게임 시작 시 자동으로 생성되어 화면에 계속 떠 있는 HUD 위젯 (없으면 nullptr)
 	UPROPERTY()

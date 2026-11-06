@@ -38,6 +38,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster Card")
 	bool bAutoRegisterCards = true;
 
+	// WildKillCount: 플레이어와 소환수가 쓰러뜨린 야생 몬스터 수 (튜토리얼 목표 판정용)
+	UPROPERTY(BlueprintReadOnly, Category = "Monster Card")
+	int32 WildKillCount = 0;
+
+	// CardPickupVFX / CardPickupSound: 카드를 주운 순간 플레이어 발밑에서 재생. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster Card")
+	UNiagaraSystem* CardPickupVFX = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster Card")
+	USoundBase* CardPickupSound = nullptr;
+
 	// AddCard: 필드에서 카드를 주워 보유 목록에 추가 (bAutoRegisterCards면 바로 등록까지)
 	UFUNCTION(BlueprintCallable, Category = "Monster Card")
 	void AddCard(const FMonsterCardEntry& CardData);

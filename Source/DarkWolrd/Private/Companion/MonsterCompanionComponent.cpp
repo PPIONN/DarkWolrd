@@ -31,6 +31,16 @@ void UMonsterCompanionComponent::AddCard(const FMonsterCardEntry& CardData)
 {
 	HeldCards.Add(CardData);
 
+	const FVector OwnerLocation = GetOwner()->GetActorLocation();
+	if (CardPickupVFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, CardPickupVFX, OwnerLocation);
+	}
+	if (CardPickupSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, CardPickupSound, OwnerLocation);
+	}
+
 	// 카드를 주우면 토끼가 깜짝 놀람
 	if (URabbitFaceComponent* Face = GetOwner()->FindComponentByClass<URabbitFaceComponent>())
 	{

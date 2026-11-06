@@ -3,6 +3,7 @@
 #include "Item/MonsterCardPickup.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/PointLightComponent.h"
 #include "GameFramework/RotatingMovementComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
 #include "UObject/ConstructorHelpers.h"
@@ -36,6 +37,13 @@ AMonsterCardPickup::AMonsterCardPickup()
 	// RotatingMovement: 제자리에서 빙글빙글 돌아 눈에 띄게 함
 	RotatingMovement = CreateDefaultSubobject<URotatingMovementComponent>(TEXT("RotatingMovement"));
 	RotatingMovement->RotationRate = FRotator(0.f, 120.f, 0.f);
+
+	GlowLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("GlowLight"));
+	GlowLight->SetupAttachment(PickupSphere);
+	GlowLight->SetIntensity(1500.f);
+	GlowLight->SetAttenuationRadius(400.f);
+	GlowLight->SetLightColor(FLinearColor(1.f, 0.8f, 0.35f));
+	GlowLight->SetCastShadows(false);
 }
 
 // 게임 시작 시: 바닥 위로 옮기고 겹침 이벤트 바인딩

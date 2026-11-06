@@ -10,6 +10,7 @@ class USphereComponent;
 class UStaticMeshComponent;
 class UProjectileMovementComponent;
 class UNiagaraSystem;
+class USoundBase;
 
 // AMagicOrbProjectile: 마법사 캐릭터가 시전하는 빛나는 구슬.
 // 캐스팅이 끝나면 캐릭터에 부착된 채로 대기하다가, Launch()가 호출되면 지정된 방향으로 날아가 적을 맞춘다.
@@ -76,6 +77,13 @@ public:
 	// ImpactVFX: 바닥이든 몬스터든 무엇에 부딫혀 사라지든 공통으로 재생되는 충돌 이펙트 (에디터에서 지정)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magic Orb")
 	UNiagaraSystem* ImpactVFX;
+
+	// LaunchSound / ImpactSound: 발사할 때 / 무언가에 부딪혀 사라질 때 재생할 소리. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magic Orb")
+	USoundBase* LaunchSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magic Orb")
+	USoundBase* ImpactSound = nullptr;
 
 	// SourceAbilityID: 이 오브를 발사한 어빌리티의 ID("Curse" 등). AbilityComponent가 스폰 시 채워줌.
 	// 온히트 효과(저주 등)에서 캐스터의 스킬 레벨을 조회할 때 이 ID로 찾음

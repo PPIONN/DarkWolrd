@@ -245,6 +245,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Summon|FX")
 	USoundBase* SummonSound = nullptr;
 
+	// HitSound / DeathSound: 맞았을 때 / 쓰러질 때 재생할 소리. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|FX")
+	USoundBase* HitSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|FX")
+	USoundBase* DeathSound = nullptr;
+
+	// DeathVFX: 쓰러지는 자리에서 재생할 이펙트. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|FX")
+	UNiagaraSystem* DeathVFX = nullptr;
+
+	// CardDropSound: 카드가 떨어질 때 재생할 소리. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|FX")
+	USoundBase* CardDropSound = nullptr;
+
 	// PlaySummonAppear: 몸(메시)이 아주 작은 크기에서 살짝 커졌다가 원래 크기로 돌아오며 튀어나오는 연출 (Duration초)
 	void PlaySummonAppear(float Duration);
 

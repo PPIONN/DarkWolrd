@@ -11,6 +11,7 @@
 #include "Animation/AnimSequence.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
+#include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 #include "Components/WidgetComponent.h"
 #include "UI/MonsterHPBarWidget.h"
@@ -175,6 +176,16 @@ float ABaseMonster::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 		{
 			GameFeelComponent->PlayHitReaction(PlayerAttacker != nullptr, bKilled);
 		}
+
+		// 맞는 순간과 쓰러지는 순간의 소리·이펙트
+		if (USoundBase* ReactionSound = bKilled ? DeathSound : HitSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, ReactionSound, GetActorLocation());
+		}
+		if (bKilled && DeathVFX)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), DeathVFX, GetActorLocation());
+		}
 		if (PlayerAttacker)
 		{
 			PlayerAttacker->AddCameraTrauma(bKilled ? PlayerAttacker->KillCameraTrauma : PlayerAttacker->HitCameraTrauma);
@@ -338,6 +349,11 @@ void ABaseMonster::GrantKillRewards()
 	UCharacterStatComponent* PlayerStat = RewardPlayer ? RewardPlayer->FindComponentByClass<UCharacterStatComponent>() : nullptr;
 	if (!PlayerStat) return;
 
+	if (UMonsterCompanionComponent* Companion = RewardPlayer->FindComponentByClass<UMonsterCompanionComponent>())
+	{
+		++Companion->WildKillCount;
+	}
+
 	PlayerStat->AddExperience(FMath::RoundToInt(RewardEXP));
 	PlayerStat->AddMoney(GetMoneyDropAmount());
 }
@@ -368,6 +384,10 @@ void ABaseMonster::TryDropMonsterCard()
 	{
 		CardPickup->CardData.MonsterClass = GetClass();
 		CardPickup->CardData.CapturedLevel = Level;
+		if (CardDropSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, CardDropSound, GetActorLocation());
+		}
 	}
 }
 

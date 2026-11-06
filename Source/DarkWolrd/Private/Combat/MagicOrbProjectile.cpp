@@ -63,6 +63,11 @@ void AMagicOrbProjectile::Launch(const FVector& Direction, AActor* HomingTarget)
 	ProjectileMovement->Velocity = Direction.GetSafeNormal() * Speed;
 
 	SetLifeSpan(LifeSpanAfterLaunch);
+
+	if (LaunchSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, LaunchSound, GetActorLocation());
+	}
 }
 
 // 겹침 처리: 발사되지 않았거나 자기 자신·소유자와의 겹침은 무시. 그 외에는 데미지를 주고 구슬을 파괴
@@ -88,6 +93,10 @@ void AMagicOrbProjectile::OnCollisionSphereBeginOverlap(UPrimitiveComponent* Ove
 	{
 		const FVector ImpactLocation = bFromSweep ? FVector(SweepResult.ImpactPoint) : GetActorLocation();
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), ImpactVFX, ImpactLocation, GetActorRotation());
+	}
+	if (ImpactSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, GetActorLocation());
 	}
 
 	Destroy();
