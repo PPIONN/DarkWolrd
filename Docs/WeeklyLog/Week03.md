@@ -8,7 +8,7 @@
 
 | 산출물 | 링크 | 비고 |
 | --- | --- | --- |
-| 데모 v1 설치본 (v0.2.0, Windows x64 zip) | **(업로드 후 입력)** | `DarkWolrd-v0.2.0-Win64.zip` · 536 MB (풀면 809 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
+| 데모 v1 설치본 (v0.2.0, Windows x64 zip) | [다운로드](https://drive.google.com/file/d/1l6OtJZaCs-DtIWh1WjQ6_W1fcZRtR956/view?usp=sharing) | `DarkWolrd-v0.2.0-Win64.zip` · 536 MB (풀면 809 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
 | 플레이테스트 기록 | [Playtest/v0.2.0.md](../Playtest/v0.2.0.md) | 관찰 기록, 문제 목록(우선순위) |
 | 에셋 출처 목록 | [Assets.md](../Assets.md) | 폰트·음원 포함 |
 | 역할 맵 | [RoleMap.md](../RoleMap.md) | 1인 역할 시간표, 역할을 넘길 때의 규칙 |
