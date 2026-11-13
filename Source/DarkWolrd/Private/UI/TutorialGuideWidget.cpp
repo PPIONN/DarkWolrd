@@ -178,8 +178,16 @@ void UTutorialGuideWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 
 	if (bShowObjectives)
 	{
-		UpdateStep();
 		UpdateMarker();
+	}
+}
+
+
+void UTutorialGuideWidget::TickObjectives()
+{
+	if (bShowObjectives && ObjectiveText)
+	{
+		UpdateStep();
 	}
 }
 

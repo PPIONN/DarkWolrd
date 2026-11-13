@@ -26,6 +26,7 @@ class UDialogueWidget;
 class UGameFeelComponent;
 class URabbitFaceComponent;
 class UTutorialGuideWidget;
+class UDemoFlowWidget;
 class USoundBase;
 
 // FOnRabbitDied: 토끼가 쓰러졌을 때 브로드캐스트 (사망 UI 표시 등에 사용)
@@ -64,6 +65,12 @@ public:
 	// OnDied: 쓰러질 때 브로드캐스트 (블루프린트에서 사망 화면 등을 띄우는 용도)
 	UPROPERTY(BlueprintAssignable, Category = "Combat")
 	FOnRabbitDied OnDied;
+
+	// bAutoRespawn: 쓰러지면 RespawnDelay 뒤 저절로 일어날지. 데모 화면(UDemoFlowWidget)이 있으면 끄고 실패 화면에서 고르게 함
+	bool bAutoRespawn = true;
+
+	// RespawnNow: 쓰러져 있으면 바로 일어남 (실패 화면의 '마지막 목표에서 다시')
+	void RespawnNow();
 
 protected:
 	// BeginPlay: 캐릭터가 게임 세상에 처음 등장할 때 한 번만 호출되는 함수
@@ -192,6 +199,7 @@ public:
 	int32 GetAttackCount() const { return AttackCount; }
 
 	UTutorialGuideWidget* GetGuideWidget() const { return GuideWidgetNative; }
+	UDemoFlowWidget* GetDemoFlowWidget() const { return DemoFlowWidgetNative; }
 
 	// SetRespawnPoint: 쓰러졌을 때 돌아올 곳을 지금 위치로 옮김 (튜토리얼 목표를 달성할 때마다 호출)
 	void SetRespawnPoint();
@@ -549,6 +557,13 @@ public:
 
 	UPROPERTY()
 	UTutorialGuideWidget* GuideWidgetNative = nullptr;
+
+	// DemoFlowWidgetClass: 시작·실패·클리어 화면. Tutorial 맵에서만 만들어지며, 비워두면 화면 없이 바로 플레이
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UDemoFlowWidget> DemoFlowWidgetClass;
+
+	UPROPERTY()
+	UDemoFlowWidget* DemoFlowWidgetNative = nullptr;
 
 	// GuideStepSound: 튜토리얼 목표를 달성할 때 재생할 소리. 비워두면 생략
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")

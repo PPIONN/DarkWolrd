@@ -10,17 +10,20 @@
 #include "Companion/MonsterCompanionComponent.h"
 #include "Item/MonsterCardPickup.h"
 #include "Monster/BaseMonster.h"
+#include "UI/DemoFlowWidget.h"
 #include "UI/TutorialGuideWidget.h"
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
 #include "InputKeyEventArgs.h"
-#include "TimerManager.h"
 #include "UnrealClient.h"
+#include "GameFramework/DamageType.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
 
 namespace
 {
 	constexpr float StepInterval = 0.25f;
+	constexpr float StartWait = 3.f;
 	constexpr float ArriveRadius = 300.f;
 	constexpr float CardArriveRadius = 40.f;
 	constexpr float AttackRange = 900.f;
@@ -45,11 +48,28 @@ FDemoLoopTest::FDemoLoopTest(ARabbit* InRabbit)
 void FDemoLoopTest::Start()
 {
 	UE_LOG(LogTemp, Display, TEXT("[LoopTest] START"));
-	SetRoute(RouteToAim);
-	LastLocation = Rabbit->GetActorLocation();
-	TakeShot(TEXT("LoopTest_1_Start"));
-	Rabbit->GetWorldTimerManager().SetTimer(TimerHandle,
-		FTimerDelegate::CreateSP(this, &FDemoLoopTest::Step), StepInterval, true, 3.f);
+	WaitTime = StartWait;
+	SetStage(EStage::Title);
+	TickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateSP(this, &FDemoLoopTest::Tick), StepInterval);
+}
+
+
+void FDemoLoopTest::AttachToRabbit(ARabbit* NewRabbit)
+{
+	Rabbit = NewRabbit;
+	LastLocation = NewRabbit->GetActorLocation();
+	WaitTime = 1.f;
+	if (Stage == EStage::WaitRestart)
+	{
+		SetStage(EStage::AfterRestart);
+	}
+}
+
+
+bool FDemoLoopTest::Tick(float DeltaTime)
+{
+	Step();
+	return !bQuitRequested;
 }
 
 
@@ -58,6 +78,7 @@ void FDemoLoopTest::SetStage(EStage NewStage, const TCHAR* ShotName)
 	Stage = NewStage;
 	StageTime = 0.f;
 	StuckTime = 0.f;
+	bShotTaken = false;
 	if (ShotName)
 	{
 		TakeShot(ShotName);
@@ -207,13 +228,21 @@ void FDemoLoopTest::FightNearestMonster()
 
 void FDemoLoopTest::Step()
 {
-	if (!Rabbit.IsValid()) return;
+	// 맵을 다시 불러오는 동안은 새 토끼가 붙을 때까지 기다림
+	if (!Rabbit.IsValid() || bQuitRequested) return;
+	if (WaitTime > 0.f)
+	{
+		WaitTime -= StepInterval;
+		return;
+	}
 
 	StageTime += StepInterval;
 	TotalTime += StepInterval;
 	UMonsterCompanionComponent* Companion = Rabbit->FindComponentByClass<UMonsterCompanionComponent>();
 	const UTutorialGuideWidget* Guide = Rabbit->GetGuideWidget();
 	const int32 GuideStep = Guide ? static_cast<int32>(Guide->GetCurrentStep()) : -1;
+	UDemoFlowWidget* Flow = Rabbit->GetDemoFlowWidget();
+	const EDemoScreen Screen = Flow ? Flow->GetScreen() : EDemoScreen::None;
 
 	if (GuideStep != LastGuideStep)
 	{
@@ -221,9 +250,9 @@ void FDemoLoopTest::Step()
 		LastGuideStep = GuideStep;
 	}
 
-	if (Stage != EStage::Finished)
+	if (Stage != EStage::Finished && Stage != EStage::FailTest)
 	{
-		// 쓰러지면 처음 하는 사람처럼 부활을 기다렸다가 이어감 (봇은 피하지 않으므로 몇 번 쓰러졌는지도 난이도 참고값이 됨)
+		// 쓰러지면 처음 하는 사람처럼 실패 화면에서 '마지막 목표에서 다시'를 고르고 이어감 (봇은 피하지 않으므로 쓰러진 횟수도 난이도 참고값이 됨)
 		if (Rabbit->IsDead())
 		{
 			if (!bWasDead)
@@ -233,6 +262,10 @@ void FDemoLoopTest::Step()
 				StopMoving();
 			}
 			bWasDead = true;
+			if (Screen == EDemoScreen::Failed)
+			{
+				Flow->RetryFromCheckpoint();
+			}
 			return;
 		}
 		bWasDead = false;
@@ -244,8 +277,59 @@ void FDemoLoopTest::Step()
 		}
 	}
 
+	// 화면 단계: 처음 한 번은 화면을 찍고, 다음 단계에서 버튼 함수를 부름 (스크린샷이 저장될 틈)
+	const auto ShotOnce = [this](const TCHAR* Name)
+	{
+		if (bShotTaken) return false;
+		TakeShot(Name);
+		bShotTaken = true;
+		return true;
+	};
+
 	switch (Stage)
 	{
+	case EStage::Title:
+		if (!Flow)
+		{
+			Fail(TEXT("no demo flow widget"));
+		}
+		else if (Screen == EDemoScreen::Title && !ShotOnce(TEXT("LoopTest_0_Title")))
+		{
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] title screen ok"));
+			Flow->StartGame();
+			SetStage(EStage::FailTest);
+		}
+		break;
+
+	case EStage::FailTest:
+		// 실패 화면을 확인하려고 시작하자마자 일부러 한 번 쓰러짐
+		if (!bFailTestDied)
+		{
+			bFailTestDied = true;
+			++DeathCount;
+			UGameplayStatics::ApplyDamage(Rabbit.Get(), 100000.f, nullptr, nullptr, UDamageType::StaticClass());
+		}
+		else if (Screen == EDemoScreen::Failed)
+		{
+			if (!ShotOnce(TEXT("LoopTest_1_Failed")))
+			{
+				UE_LOG(LogTemp, Display, TEXT("[LoopTest] fail screen ok"));
+				Flow->RetryFromCheckpoint();
+			}
+		}
+		else if (Screen == EDemoScreen::None && bShotTaken && !Rabbit->IsDead())
+		{
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] retry from checkpoint ok"));
+			SetRoute(RouteToAim);
+			LastLocation = Rabbit->GetActorLocation();
+			SetStage(EStage::WalkToAim, TEXT("LoopTest_1_Start"));
+		}
+		else if (StageTime > 10.f)
+		{
+			Fail(TEXT("fail screen did not appear"));
+		}
+		break;
+
 	case EStage::WalkToAim:
 		if (FollowRoute())
 		{
@@ -386,8 +470,8 @@ void FDemoLoopTest::Step()
 		if (GuideStep == static_cast<int32>(ETutorialStep::Done))
 		{
 			StopMoving();
-			UE_LOG(LogTemp, Display, TEXT("[LoopTest] PASS in %.0fs, rabbit died %d times"), TotalTime, DeathCount);
-			SetStage(EStage::Finished, TEXT("LoopTest_8_Done"));
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] exit reached in %.0fs"), TotalTime);
+			SetStage(EStage::WaitClear);
 		}
 		else if (FollowRoute())
 		{
@@ -395,11 +479,48 @@ void FDemoLoopTest::Step()
 		}
 		break;
 
-	case EStage::Finished:
-		// 마지막 화면이 저장될 시간을 주고 Esc로 끝냄 (종료 키도 같이 확인됨). 쓰러진 동안은 입력이 막혀 있어 부활을 기다림
-		if (StageTime >= 1.f && !Rabbit->IsDead())
+	case EStage::WaitClear:
+		if (Screen == EDemoScreen::Cleared && !ShotOnce(TEXT("LoopTest_8_Clear")))
 		{
-			PressKey(EKeys::Escape);
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] clear screen ok, restarting from the beginning"));
+			SetStage(EStage::WaitRestart);
+			Flow->RestartFromBeginning();
+		}
+		else if (StageTime > 10.f)
+		{
+			Fail(TEXT("clear screen did not appear"));
+		}
+		break;
+
+	case EStage::WaitRestart:
+		// AttachToRabbit에서 다음 단계로 넘어감
+		break;
+
+	case EStage::AfterRestart:
+		if (Screen == EDemoScreen::Title && !ShotOnce(TEXT("LoopTest_9_Restarted")))
+		{
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] PASS in %.0fs, rabbit died %d times (1 on purpose)"), TotalTime, DeathCount);
+			SetStage(EStage::Finished);
+		}
+		else if (StageTime > 10.f)
+		{
+			Fail(TEXT("title screen did not appear after restart"));
+		}
+		break;
+
+	case EStage::Finished:
+		// 마지막 화면이 저장될 시간을 주고 종료 버튼 함수로 끝냄
+		if (StageTime >= 1.f)
+		{
+			bQuitRequested = true;
+			if (Flow)
+			{
+				Flow->QuitDemo();
+			}
+			else
+			{
+				FPlatformMisc::RequestExit(false, TEXT("DemoLoopTest"));
+			}
 		}
 		break;
 	}

@@ -43,6 +43,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Guide")
 	ETutorialStep GetCurrentStep() const { return CurrentStep; }
 
+	// TickObjectives: 목표 달성 여부를 확인하고 다음 목표로 넘김. 토끼의 월드 틱에서 호출
+	// (위젯 틱은 창이 그려질 때만 돌아서 최소화·창 없는 실행에서도 진행되도록 분리)
+	void TickObjectives();
+
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;

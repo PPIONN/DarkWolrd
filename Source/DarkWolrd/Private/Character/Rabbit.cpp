@@ -22,6 +22,9 @@
 #include "UI/CrosshairWidget.h"
 #include "UI/GameAnnouncementSubsystem.h"
 #include "UI/TutorialGuideWidget.h"
+#include "UI/DemoFlowWidget.h"
+#include "NavigationSystem.h"
+#include "NavigationData.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Character/DemoLoopTest.h"
@@ -47,6 +50,7 @@ ARabbit::ARabbit()
 	// 조준점 위젯: 기본은 코드로 그린 조준점 (BP에서 다른 위젯으로 바꾸거나 비워서 끌 수 있음)
 	CrosshairWidgetClass = UCrosshairWidget::StaticClass();
 	GuideWidgetClass = UTutorialGuideWidget::StaticClass();
+	DemoFlowWidgetClass = UDemoFlowWidget::StaticClass();
 
 	// SpringArm 설정
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
@@ -99,6 +103,19 @@ void ARabbit::BeginPlay()
 	// 쓰러졌을 때 돌아올 부활 지점 = 이 레벨에서 처음 선 위치
 	RespawnTransform = GetActorTransform();
 
+	// 길찾기: 맵을 다시 저장하면 빈 데이터가 정상으로 읽혀 게임 시작 때 새로 만들지 않는 경우가 있어서,
+	// 실행 중에 만드는(Dynamic) 길찾기 데이터는 플레이가 시작될 때 직접 새로 만듦 (몬스터·소환수 이동에 필요)
+	if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld()))
+	{
+		for (ANavigationData* NavData : NavSys->NavDataSet)
+		{
+			if (NavData && NavData->SupportsRuntimeGeneration())
+			{
+				NavData->RebuildAll();
+			}
+		}
+	}
+
 	// 타격감 연출의 기준값: 지금 시야각·카메라 회전·중력
 	if (Camera)
 	{
@@ -147,6 +164,16 @@ void ARabbit::BeginPlay()
 			}
 		}
 
+		// 데모 흐름 화면: 시작 화면을 띄우고, 쓰러지면 실패 화면, 출구에 닿으면 클리어 화면 (Tutorial 맵에서만)
+		if (DemoFlowWidgetClass && GetWorld()->GetMapName().Contains(TEXT("Tutorial")))
+		{
+			DemoFlowWidgetNative = CreateWidget<UDemoFlowWidget>(PC, DemoFlowWidgetClass);
+			if (DemoFlowWidgetNative)
+			{
+				DemoFlowWidgetNative->AddToViewport(10);
+			}
+		}
+
 		// 대화창 위젯 생성: 평소엔 숨겨져 있다가 Interact() 성공 시에만 보이게 함
 		if (DialogueWidgetClass)
 		{
@@ -160,7 +187,12 @@ void ARabbit::BeginPlay()
 	}
 
 #if !UE_BUILD_SHIPPING
-	if (!GDemoLoopTest.IsValid() && FParse::Param(FCommandLine::Get(), TEXT("DemoLoopTest")))
+	if (GDemoLoopTest.IsValid())
+	{
+		// 점검 중에 '처음부터 다시'로 맵을 다시 불러온 경우: 새 토끼로 이어서 확인
+		GDemoLoopTest->AttachToRabbit(this);
+	}
+	else if (FParse::Param(FCommandLine::Get(), TEXT("DemoLoopTest")))
 	{
 		GDemoLoopTest = MakeShared<FDemoLoopTest>(this);
 		GDemoLoopTest->Start();
@@ -173,6 +205,17 @@ void ARabbit::BeginPlay()
 void ARabbit::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// 목표 진행과 실패·클리어 화면 예약은 월드 틱에서 돌림.
+	// 위젯 틱은 창이 그려질 때만 돌아서, 창이 최소화되거나 창 없이 실행하면 목표가 넘어가지 않음
+	if (GuideWidgetNative)
+	{
+		GuideWidgetNative->TickObjectives();
+	}
+	if (DemoFlowWidgetNative)
+	{
+		DemoFlowWidgetNative->TickFlow();
+	}
 
 	if (bIsMeditating && StatComponent)
 	{
@@ -884,7 +927,18 @@ void ARabbit::HandleDeath()
 
 	OnDied.Broadcast();
 
-	GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ARabbit::Respawn, RespawnDelay, false);
+	if (bAutoRespawn)
+	{
+		GetWorldTimerManager().SetTimer(RespawnTimerHandle, this, &ARabbit::Respawn, RespawnDelay, false);
+	}
+}
+
+
+void ARabbit::RespawnNow()
+{
+	if (!bIsDead) return;
+	GetWorldTimerManager().ClearTimer(RespawnTimerHandle);
+	Respawn();
 }
 
 
