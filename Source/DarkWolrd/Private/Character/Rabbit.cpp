@@ -28,6 +28,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Character/DemoLoopTest.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimSequenceBase.h"
 #include "Misc/CommandLine.h"
 #include "UI/DialogueWidget.h"
 #include "Interaction/InteractionComponent.h"
@@ -35,6 +38,9 @@
 #include "Components/CapsuleComponent.h"
 #include "Character/GameFeelComponent.h"
 #include "Character/RabbitFaceComponent.h"
+#include "Inventory/InventoryComponent.h"
+#include "UI/InventoryWidget.h"
+#include "UI/ItemPickupFeedWidget.h"
 
 
 #if !UE_BUILD_SHIPPING
@@ -51,6 +57,8 @@ ARabbit::ARabbit()
 	CrosshairWidgetClass = UCrosshairWidget::StaticClass();
 	GuideWidgetClass = UTutorialGuideWidget::StaticClass();
 	DemoFlowWidgetClass = UDemoFlowWidget::StaticClass();
+	InventoryWidgetClass = UInventoryWidget::StaticClass();
+	PickupFeedWidgetClass = UItemPickupFeedWidget::StaticClass();
 
 	// SpringArm 설정
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
@@ -80,10 +88,13 @@ ARabbit::ARabbit()
 	CompanionComponent = CreateDefaultSubobject<UMonsterCompanionComponent>(TEXT("CompanionComponent"));
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 	GameFeelComponent = CreateDefaultSubobject<UGameFeelComponent>(TEXT("GameFeelComponent"));
+	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 	FaceComponent = CreateDefaultSubobject<URabbitFaceComponent>(TEXT("FaceComponent"));
 
-	// 조작감: 빨리 출발하고 빨리 멈추며, 공중에서도 방향을 어느 정도 틀 수 있게 (엔진 기본값은 가속·감속 2048, 공중 조작 0.05)
-	GetCharacterMovement()->MaxAcceleration = 4096.f;
+	// 조작감: 빨리 출발하고 빨리 멈추며, 공중에서도 방향을 어느 정도 틀 수 있게 (엔진 기본값은 가속·감속 2048, 공중 조작 0.05).
+	// 가속은 4096이었는데 걷기 속도(150)에 0.04초 만에 도달해서, 대기→걷기 애니메이션 전환(0.1초 남짓) 동안 발이
+	// 미끄러졌음. 2000이면 걷기까지 약 0.08초라 블렌드스페이스가 속도에 맞춰 걸음을 키움 (2026-11-19)
+	GetCharacterMovement()->MaxAcceleration = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 3072.f;
 	GetCharacterMovement()->AirControl = 0.35f;
 }
@@ -124,6 +135,24 @@ void ARabbit::BeginPlay()
 	}
 	BaseGravityScale = GetCharacterMovement()->GravityScale;
 
+	// 시점: 3인칭으로 돌아갈 때 쓸 스프링암 원래 설정을 저장한 뒤 지금 시점(기본 쿼터뷰)에 맞춤
+	if (SpringArm)
+	{
+		ThirdPersonArmRotation = SpringArm->GetRelativeRotation();
+		ThirdPersonTargetOffset = SpringArm->TargetOffset;
+		bThirdPersonArmCollision = SpringArm->bDoCollisionTest;
+	}
+	QuarterDefaultYaw = GetActorRotation().Yaw;   // 휠 클릭으로 되돌아올 쿼터뷰 방향 = 등장할 때 보던 방향
+	ApplyViewMode();
+
+	// 시작부터 쿼터뷰 거리·시야각으로 (안 그러면 첫 0.5초 동안 3인칭 거리에서 줌아웃됨)
+	if (bQuarterView && SpringArm)
+	{
+		SpringArm->TargetArmLength = QuarterArmLength;
+		SpringArm->SocketOffset = FVector::ZeroVector;
+		CurrentBaseFOV = QuarterFOV;
+	}
+
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
@@ -154,6 +183,17 @@ void ARabbit::BeginPlay()
 			}
 		}
 
+		// 아이템 획득 알림: 화면 오른쪽에 "+1 박쥐 날개"
+		if (PickupFeedWidgetClass && InventoryComponent)
+		{
+			PickupFeedWidgetNative = CreateWidget<UItemPickupFeedWidget>(PC, PickupFeedWidgetClass);
+			if (PickupFeedWidgetNative)
+			{
+				PickupFeedWidgetNative->AddToViewport(2);
+				PickupFeedWidgetNative->BindInventory(InventoryComponent);
+			}
+		}
+
 		// 안내 위젯: 조작 안내, 튜토리얼 목표, 화면 알림
 		if (GuideWidgetClass)
 		{
@@ -172,6 +212,12 @@ void ARabbit::BeginPlay()
 			{
 				DemoFlowWidgetNative->AddToViewport(10);
 			}
+		}
+
+		// 입력 모드와 커서. 시작 화면이 있으면 그 화면이 정하고, 게임을 시작할 때 다시 이걸 부름
+		if (!DemoFlowWidgetNative)
+		{
+			ApplyGameplayInputMode();
 		}
 
 		// 대화창 위젯 생성: 평소엔 숨겨져 있다가 Interact() 성공 시에만 보이게 함
@@ -224,6 +270,16 @@ void ARabbit::Tick(float DeltaTime)
 
 	TimeSinceLastInput += DeltaTime;
 
+	// 화면 회전 중 우클릭을 뗀 신호를 놓쳤으면(창 전환 등) 여기서 끝냄. 안 그러면 커서가 숨은 채로 남음
+	if (bCameraDragging)
+	{
+		const APlayerController* PC = Cast<APlayerController>(GetController());
+		if (!PC || !PC->IsInputKeyDown(EKeys::RightMouseButton))
+		{
+			EndCameraDrag();
+		}
+	}
+
 	UpdateCameraAndFacing(DeltaTime);
 	UpdateCameraFeel(GetWorld()->GetDeltaSeconds());
 
@@ -249,6 +305,34 @@ void ARabbit::Tick(float DeltaTime)
 		else if (!bStrafe && GetVelocity().Size2D() > 10.f)
 		{
 			DesiredDir = GetActorForwardVector();
+		}
+		else if (bQuarterView)
+		{
+			// 쿼터뷰: 카메라는 바닥을 내려다보므로 카메라 방향 대신 조준점(커서) 쪽을 수평으로 봄. 커서가 없으면 정면
+			DesiredDir = GetActorForwardVector();
+			if (AbilityComponent)
+			{
+				const FVector ToAim = (AbilityComponent->GetCurrentAimPoint() - Origin).GetSafeNormal2D();
+				if (!ToAim.IsNearlyZero())
+				{
+					DesiredDir = ToAim;
+				}
+			}
+		}
+
+		// 카메라가 몸 뒤쪽을 보면(어깨선 너머) 뒤로 갈수록 정면 쪽으로 되돌림: 정확히 뒤를 볼 때는 정면을 봄.
+		// 예전에는 카메라가 등 뒤를 지날 때 바라볼 지점이 반대편으로 넘어가서 고개가 40도 한계에서 반대쪽으로 홱 넘어갔음
+		{
+			const FVector Fwd = GetActorForwardVector().GetSafeNormal2D();
+			const float Behind = -FVector::DotProduct(DesiredDir.GetSafeNormal2D(), Fwd);   // 0 = 옆, 1 = 정확히 뒤
+			if (Behind > 0.f)
+			{
+				DesiredDir = FMath::Lerp(DesiredDir.GetSafeNormal(), Fwd, FMath::Clamp(Behind, 0.f, 1.f)).GetSafeNormal();
+				if (DesiredDir.IsNearlyZero())
+				{
+					DesiredDir = Fwd;
+				}
+			}
 		}
 
 		FVector CurrentDir = (HeadLookAtTarget - Origin).GetSafeNormal();
@@ -296,6 +380,11 @@ void ARabbit::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 		EIC->BindAction(Command1Action,        ETriggerEvent::Started, this, &ARabbit::HandleCommand1);
 		EIC->BindAction(Command2Action,        ETriggerEvent::Started, this, &ARabbit::HandleCommand2);
 		PlayerInputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &ARabbit::HandleQuitKey);
+		PlayerInputComponent->BindKey(EKeys::V, IE_Pressed, this, &ARabbit::ToggleQuarterView);
+		PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &ARabbit::ZoomIn);
+		PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &ARabbit::ZoomOut);
+		PlayerInputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &ARabbit::ResetQuarterYaw);
+		PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &ARabbit::ToggleInventory);   // I(IA_Inventory)와 같은 동작
 	}
 }
 
@@ -366,6 +455,16 @@ void ARabbit::Look(const FInputActionValue& Value)
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
 	if (!Controller) return;
 
+	// 쿼터뷰: 평소 마우스는 커서(조준)에 쓰고, 우클릭을 누르고 있을 때만 좌우로 화면을 돌림(내려다보는 각도는 고정)
+	if (bQuarterView)
+	{
+		if (bCameraDragging)
+		{
+			AddControllerYawInput(LookAxisVector.X * MouseSensitivity * QuarterRotateSpeed);
+		}
+		return;
+	}
+
 	AddControllerYawInput(LookAxisVector.X * MouseSensitivity);
 	AddControllerPitchInput(-LookAxisVector.Y * MouseSensitivity);
 }
@@ -382,6 +481,10 @@ void ARabbit::ToggleInventory()
 
 	if (!InventoryWidgetNative || !InventoryWidgetNative->IsInViewport())
 	{
+		// 시작·실패·클리어 화면이 떠 있거나 쓰러져 있으면 열지 않음
+		if (bIsDead || (DemoFlowWidgetNative && DemoFlowWidgetNative->GetScreen() != EDemoScreen::None)) return;
+
+		EndCameraDrag();   // 회전 중이었으면 먼저 끝냄(아래에서 UI 입력 모드로 바꿈)
 		if (!InventoryWidgetNative)
 		{
 			InventoryWidgetNative = CreateWidget<UUserWidget>(PC, InventoryWidgetClass);
@@ -389,22 +492,42 @@ void ARabbit::ToggleInventory()
 
 		if (InventoryWidgetNative)
 		{
-			InventoryWidgetNative->AddToViewport();
+			InventoryWidgetNative->AddToViewport(20);
+			if (UInventoryWidget* Inventory = Cast<UInventoryWidget>(InventoryWidgetNative))
+			{
+				Inventory->OpenFor(this);
+			}
 
 			FInputModeUIOnly InputMode;
-			InputMode.SetWidgetToFocus(InventoryWidgetNative->GetCachedWidget());
+			InputMode.SetWidgetToFocus(InventoryWidgetNative->TakeWidget());
+			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 			PC->SetInputMode(InputMode);
 			PC->bShowMouseCursor = true;
 		}
 	}
 	else
 	{
-		InventoryWidgetNative->RemoveFromParent();
-
-		FInputModeGameOnly InputMode;
-		PC->SetInputMode(InputMode);
-		PC->bShowMouseCursor = false;
+		CloseInventory();
 	}
+}
+
+
+bool ARabbit::IsInventoryOpen() const
+{
+	return InventoryWidgetNative && InventoryWidgetNative->IsInViewport();
+}
+
+
+void ARabbit::CloseInventory()
+{
+	if (!IsInventoryOpen()) return;
+
+	if (UInventoryWidget* Inventory = Cast<UInventoryWidget>(InventoryWidgetNative))
+	{
+		Inventory->CloseInventory();
+	}
+	InventoryWidgetNative->RemoveFromParent();
+	ApplyGameplayInputMode();
 }
 
 
@@ -413,23 +536,37 @@ void ARabbit::Attack()
 {
 	RegisterInputActivity();
 
-	// 쿨다운 등으로 실제로 발동되지 않았으면(false 반환) 이동을 잠글 이유가 없음
+	// 쿨다운 등으로 실제로 발동되지 않았으면(false 반환) 동작도 재생하지 않음
 	if (AbilityComponent && AbilityComponent->TryActivateAbility(TEXT("BasicAttack")))
 	{
 		++AttackCount;
 
-		// 쏘는 방향으로 즉시 돌아보고 잠시 그 방향을 유지: 락온 중이면 대상 쪽, 아니면 카메라(조준) 방향
+		// 쏘는 방향으로 빠르게 돌아보고 잠시 그 방향을 유지: 락온 중이면 대상 쪽, 아니면 조준 방향(3인칭은 카메라, 쿼터뷰는 커서).
+		// 예전에는 SetActorRotation으로 한 프레임에 돌아서 몸이 홱 돌아갔음. 이제 AttackTurnRate(기본 초당 1800도)로
+		// 돌아서 뒤돌아보는 데 0.1초 — 손가락을 튕기는(오브가 나가는) 순간에 맞춰 정면을 봄
 		float FacingYaw = 0.f;
 		if (GetLockOnTargetYaw(FacingYaw))
 		{
-			SetActorRotation(FRotator(0.f, FacingYaw, 0.f));
+			StartQuickTurn(FacingYaw, AttackTurnRate);
 		}
 		else if (Controller)
 		{
-			SetActorRotation(FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f));
+			StartQuickTurn(GetAimYaw(), AttackTurnRate);
 		}
 		CombatFacingTimeLeft = CombatFacingDuration;
-		StartAttackMoveLock();
+		if (bLockMoveOnAttack)
+		{
+			StartAttackMoveLock();
+		}
+		if (AttackAnimation)
+		{
+			if (UAnimInstance* Anim = GetRabbitAnimInstance())
+			{
+				// 상체만: 다리는 이동 애니메이션 그대로. 손가락을 튕기는 순간(0.1초)이 블렌드에 묻히지 않게 블렌드 인은 짧게
+				const float AttackSpeedMultiplier = StatComponent ? StatComponent->GetAttackSpeedMultiplier() : 1.f;
+				Anim->PlaySlotAnimationAsDynamicMontage(AttackAnimation, TEXT("UpperBody"), 0.05f, 0.25f, AttackSpeedMultiplier);
+			}
+		}
 		if (GameFeelComponent)
 		{
 			GameFeelComponent->AddSquash(AttackSquash);
@@ -611,8 +748,9 @@ void ARabbit::TryDash()
 
 	// 옆걸음 상태(조준·공격 직후): 카메라 정면으로 대시.
 	// 탐험 상태: 지금 누르고 있는 이동 방향(없으면 몸이 보는 방향)으로 대시하고 몸도 그쪽으로 돌림
+	// 쿼터뷰의 카메라 정면은 화면 위쪽일 뿐이라, 옆걸음 중에도 누르는 방향으로 대시함(몸 방향은 조준 쪽 그대로)
 	FVector DashDirection;
-	if (IsStrafing())
+	if (IsStrafing() && !bQuarterView)
 	{
 		const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
 		DashDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
@@ -624,7 +762,10 @@ void ARabbit::TryDash()
 		{
 			DashDirection = GetActorForwardVector().GetSafeNormal2D();
 		}
-		SetActorRotation(DashDirection.Rotation());
+		if (!IsStrafing())
+		{
+			SetActorRotation(DashDirection.Rotation());
+		}
 	}
 
 	const FVector StartLocation = GetActorLocation();
@@ -725,13 +866,29 @@ void ARabbit::Landed(const FHitResult& Hit)
 }
 
 
+UAnimInstance* ARabbit::GetRabbitAnimInstance() const
+{
+	return GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+}
+
+
 // 명상 시작: 이동을 즉시 멈추고(기존 속도 제거) 명상 상태로 전환. 이후 Tick에서 MP를 회복시킴
 void ARabbit::StartMeditate()
 {
 	RegisterInputActivity();
 
+	const bool bWasMeditating = bIsMeditating;
 	bIsMeditating = true;
 	GetCharacterMovement()->StopMovementImmediately();
+
+	// 마나를 모으는 애니메이션(살짝 떠올라 손바닥을 펼침)을 버튼을 놓을 때까지 반복
+	if (!bWasMeditating && MeditateAnimation)
+	{
+		if (UAnimInstance* Anim = GetRabbitAnimInstance())
+		{
+			ActiveMeditateMontage = Anim->PlaySlotAnimationAsDynamicMontage(MeditateAnimation, TEXT("DefaultSlot"), 0.35f, 0.35f, 1.f, 1000);
+		}
+	}
 }
 
 
@@ -739,6 +896,15 @@ void ARabbit::StartMeditate()
 void ARabbit::StopMeditate()
 {
 	bIsMeditating = false;
+
+	if (ActiveMeditateMontage.IsValid())
+	{
+		if (UAnimInstance* Anim = GetRabbitAnimInstance())
+		{
+			Anim->Montage_Stop(0.35f, ActiveMeditateMontage.Get());
+		}
+	}
+	ActiveMeditateMontage.Reset();
 }
 
 
@@ -876,6 +1042,15 @@ float ARabbit::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, A
 		FaceComponent->PlayExpression(ERabbitExpression::Hurt, 0.45f);
 	}
 
+	// 몸이 움찔: 상체 슬롯에서만 재생해서 걷던 다리는 그대로. 쓰러지는 타격이면 사망 애니메이션이 이어지므로 생략
+	if (HitAnimation && StatComponent->CurrentHP > 0.f)
+	{
+		if (UAnimInstance* Anim = GetRabbitAnimInstance())
+		{
+			Anim->PlaySlotAnimationAsDynamicMontage(HitAnimation, TEXT("UpperBody"), 0.05f, 0.2f);
+		}
+	}
+
 	// 타격감: 몸이 움찔 찌그러지며 잠깐 멈추고 화면이 흔들림. 근접 공격이면 때린 몬스터도 같이 멈춤
 	if (GameFeelComponent)
 	{
@@ -904,6 +1079,9 @@ void ARabbit::HandleDeath()
 	if (bIsDead) return;
 	bIsDead = true;
 
+	// 인벤토리를 열어 둔 채 쓰러지면 닫음 (실패 화면이 그 위에 떠야 함)
+	CloseInventory();
+
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		DisableInput(PC);
@@ -923,6 +1101,21 @@ void ARabbit::HandleDeath()
 	if (FaceComponent)
 	{
 		FaceComponent->SetBaseExpression(ERabbitExpression::Sad);
+	}
+
+	// 쓰러지는 애니메이션: 진행 중이던 공격·명상 몽타주를 끊고 재생, 마지막(누운) 포즈를 부활할 때까지 유지
+	bIsMeditating = false;
+	ActiveMeditateMontage.Reset();
+	if (UAnimInstance* Anim = GetRabbitAnimInstance())
+	{
+		Anim->StopAllMontages(0.1f);
+		if (DeathAnimation)
+		{
+			if (UAnimMontage* DeathMontage = Anim->PlaySlotAnimationAsDynamicMontage(DeathAnimation, TEXT("DefaultSlot"), 0.1f, 0.f))
+			{
+				DeathMontage->bEnableAutoBlendOut = false;
+			}
+		}
 	}
 
 	OnDied.Broadcast();
@@ -973,6 +1166,12 @@ void ARabbit::Respawn()
 		FaceComponent->SetBaseExpression(ERabbitExpression::Neutral);
 	}
 
+	// 누운 채 유지하던 사망 애니메이션을 풀고 다시 서 있는 자세로
+	if (UAnimInstance* Anim = GetRabbitAnimInstance())
+	{
+		Anim->StopAllMontages(0.25f);
+	}
+
 	bIsDead = false;
 
 	// 쓰러질 때 소환수도 사라지므로 다시 부르는 법을 알려줌
@@ -1019,6 +1218,41 @@ void ARabbit::DebugKillNearby(float Radius)
 }
 
 
+// 디버그: 아이템 이름(DA_Item_ 뒤 부분)으로 인벤토리에 넣기
+void ARabbit::DebugGiveItem(const FString& ItemName, int32 Count)
+{
+	const FString Path = FString::Printf(TEXT("/Game/Items/DA_Item_%s.DA_Item_%s"), *ItemName, *ItemName);
+	UItemDefinition* Item = LoadObject<UItemDefinition>(nullptr, *Path);
+	if (!Item || !InventoryComponent)
+	{
+		ShowSummonDebugMessage(FString::Printf(TEXT("DebugGiveItem: %s 없음"), *Path), FColor::Red);
+		return;
+	}
+	const int32 Added = InventoryComponent->AddItem(Item, FMath::Max(Count, 1));
+	ShowSummonDebugMessage(FString::Printf(TEXT("DebugGiveItem: %s %d개"), *Item->DisplayName.ToString(), Added));
+}
+
+
+// 디버그: /Game/Items의 아이템 정의를 전부 1개씩
+void ARabbit::DebugGiveAllItems()
+{
+	if (!InventoryComponent) return;
+
+	const FAssetRegistryModule& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	TArray<FAssetData> Assets;
+	AssetRegistry.Get().GetAssetsByClass(UItemDefinition::StaticClass()->GetClassPathName(), Assets);
+	int32 Given = 0;
+	for (const FAssetData& Asset : Assets)
+	{
+		if (UItemDefinition* Item = Cast<UItemDefinition>(Asset.GetAsset()))
+		{
+			Given += InventoryComponent->AddItem(Item, 1) > 0 ? 1 : 0;
+		}
+	}
+	ShowSummonDebugMessage(FString::Printf(TEXT("DebugGiveAllItems: %d종 넣음"), Given));
+}
+
+
 // 디버그: 레벨의 첫 번째 아레나에서 바로 대전 시작
 void ARabbit::DebugStartArena()
 {
@@ -1034,17 +1268,64 @@ void ARabbit::DebugStartArena()
 }
 
 
-// 조준 시작/끝: 누르고 있는 동안만 조준 모드
+// 조준 시작/끝: 누르고 있는 동안만 조준 모드. 쿼터뷰에서 화면 회전을 켜 두면(bQuarterRotateEnabled) 같은 키(우클릭)가 화면 회전
 void ARabbit::StartAim()
 {
 	RegisterInputActivity();
+	if (bQuarterView && bQuarterRotateEnabled)
+	{
+		StartCameraDrag();
+		return;
+	}
 	bIsAiming = true;
 }
 
 
 void ARabbit::StopAim()
 {
+	EndCameraDrag();
 	bIsAiming = false;
+}
+
+
+// 화면 회전 시작: 커서 자리를 기억하고, 커서를 숨긴 채 마우스 움직임을 그대로 받는 입력 모드로 바꿈
+void ARabbit::StartCameraDrag()
+{
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC || bCameraDragging) return;
+
+	bCameraDragging = true;
+	float X = -1.f, Y = -1.f;
+	CameraDragCursorPos = PC->GetMousePosition(X, Y) ? FVector2D(X, Y) : FVector2D(-1.f, -1.f);
+	PC->bShowMouseCursor = false;
+	PC->SetInputMode(FInputModeGameOnly());
+}
+
+
+// 화면 회전 끝: 커서를 다시 보이고 누르기 전 자리로 돌려놓음
+void ARabbit::EndCameraDrag()
+{
+	if (!bCameraDragging) return;
+	bCameraDragging = false;
+
+	ApplyGameplayInputMode();
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (PC && CameraDragCursorPos.X >= 0.f)
+	{
+		PC->SetMouseLocation(FMath::RoundToInt(CameraDragCursorPos.X), FMath::RoundToInt(CameraDragCursorPos.Y));
+	}
+}
+
+
+// 휠 클릭: 쿼터뷰 카메라를 처음 방향으로 부드럽게 되돌림
+void ARabbit::ResetQuarterYaw()
+{
+	if (!bQuarterView || !bQuarterRotateEnabled || !Controller) return;
+
+	FRotator ControlRotation = Controller->GetControlRotation();
+	ControlRotation.Yaw = QuarterDefaultYaw;
+	Controller->SetControlRotation(ControlRotation);
+	BeginViewBlend();
 }
 
 
@@ -1065,6 +1346,31 @@ bool ARabbit::GetLockOnTargetYaw(float& OutYaw) const
 }
 
 
+// 빠른 회전 시작: 목표 각도로 Rate(도/초) 속도로 돌기 시작. 서 있는 채로 크게 돌면 제자리 발 디딤 동작을 함께 재생해서
+// 발을 땅에 붙인 채 몸만 도는 걸 막음 (걷는 중이면 다리가 이미 움직이니 생략)
+void ARabbit::StartQuickTurn(float TargetYaw, float Rate)
+{
+	const float Delta = FMath::Abs(FRotator::NormalizeAxis(TargetYaw - GetActorRotation().Yaw));
+	if (Delta < 1.f)
+	{
+		bQuickTurnActive = false;
+		return;
+	}
+	QuickTurnYaw = TargetYaw;
+	QuickTurnRate = FMath::Max(Rate, 1.f);
+	bQuickTurnActive = true;
+
+	const UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (TurnStepAnimation && Delta >= StandTurnThreshold && MoveComp && MoveComp->Velocity.Size2D() <= 10.f && !MoveComp->IsFalling())
+	{
+		if (UAnimInstance* Anim = GetRabbitAnimInstance())
+		{
+			Anim->PlaySlotAnimationAsDynamicMontage(TurnStepAnimation, TEXT("DefaultSlot"), 0.06f, 0.15f, 1.f);
+		}
+	}
+}
+
+
 // 매 프레임: 상태에 맞는 몸 회전 방식을 고르고, 카메라 거리·어깨 오프셋·시야각을 목표값으로 부드럽게 이동
 void ARabbit::UpdateCameraAndFacing(float DeltaTime)
 {
@@ -1078,26 +1384,169 @@ void ARabbit::UpdateCameraAndFacing(float DeltaTime)
 
 	bUseControllerRotationYaw = false;
 	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
-	MoveComp->bOrientRotationToMovement = !bStrafe;
-	MoveComp->bUseControllerDesiredRotation = bStrafe && !bFaceLockOnTarget;
+	const bool bMoving = MoveComp->Velocity.Size2D() > 10.f;
+
+	// 옆걸음 상태로 서 있을 때: 바라볼 방향과의 차이가 StandTurnThreshold 이하면 몸은 그대로 두고 목(LookAt)만 돌아감.
+	// 넘으면 발을 디디며(TurnStepAnimation) 한 번에 돎. 예전에는 서 있어도 계속 따라 돌아서 발을 땅에 붙인 채 몸이 돌았음
+	if (bStrafe && !bMoving && !bQuickTurnActive && !MoveComp->IsFalling())
+	{
+		const float WantYaw = bFaceLockOnTarget ? LockOnYaw : GetAimYaw();
+		if (FMath::Abs(FRotator::NormalizeAxis(WantYaw - GetActorRotation().Yaw)) > StandTurnThreshold)
+		{
+			StartQuickTurn(WantYaw, StandTurnRate);
+		}
+	}
+
+	// 쿼터뷰에서는 컨트롤러 회전이 카메라 방향(화면 위쪽)일 뿐이라, 옆걸음으로 움직일 때도 컨트롤러 대신 조준(커서) 방향으로 직접 돎
+	const bool bFaceAimManually = bQuarterView && bStrafe && !bFaceLockOnTarget;
+	MoveComp->bOrientRotationToMovement = !bStrafe && !bQuickTurnActive;
+	MoveComp->bUseControllerDesiredRotation = bStrafe && !bFaceLockOnTarget && !bFaceAimManually && bMoving && !bQuickTurnActive;
 	MoveComp->RotationRate = FRotator(0.f, bStrafe ? FacingTurnRate : ExploreTurnRate, 0.f);
 
-	if (bFaceLockOnTarget)
+	if (bQuickTurnActive)
+	{
+		SetActorRotation(FMath::RInterpConstantTo(GetActorRotation(), FRotator(0.f, QuickTurnYaw, 0.f), DeltaTime, QuickTurnRate));
+		if (FMath::Abs(FRotator::NormalizeAxis(QuickTurnYaw - GetActorRotation().Yaw)) < 1.f)
+		{
+			bQuickTurnActive = false;
+		}
+	}
+	else if (bFaceLockOnTarget && bMoving)
 	{
 		SetActorRotation(FMath::RInterpConstantTo(GetActorRotation(), FRotator(0.f, LockOnYaw, 0.f), DeltaTime, FacingTurnRate));
 	}
+	else if (bFaceAimManually && bMoving)
+	{
+		SetActorRotation(FMath::RInterpConstantTo(GetActorRotation(), FRotator(0.f, GetAimYaw(), 0.f), DeltaTime, FacingTurnRate));
+	}
 
+	// 쿼터뷰는 조준해도 카메라를 당기지 않음(전장 전체를 보는 게 목적). 거리는 마우스 휠로만 바뀜
 	if (SpringArm)
 	{
-		const float TargetLength = bIsAiming ? AimArmLength : ExploreArmLength;
-		const FVector TargetOffset = bIsAiming ? AimSocketOffset : ExploreSocketOffset;
+		const float TargetLength = bQuarterView ? QuarterArmLength : (bIsAiming ? AimArmLength : ExploreArmLength);
+		const FVector TargetOffset = bQuarterView ? FVector::ZeroVector : (bIsAiming ? AimSocketOffset : ExploreSocketOffset);
 		SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, TargetLength, DeltaTime, CameraBlendSpeed);
 		SpringArm->SocketOffset = FMath::VInterpTo(SpringArm->SocketOffset, TargetOffset, DeltaTime, CameraBlendSpeed);
 	}
 	if (Camera)
 	{
 		// 실제 시야각은 UpdateCameraFeel에서 순간 변화량을 더해서 적용
-		CurrentBaseFOV = FMath::FInterpTo(CurrentBaseFOV, bIsAiming ? AimFOV : ExploreFOV, DeltaTime, CameraBlendSpeed);
+		const float TargetFOV = bQuarterView ? QuarterFOV : (bIsAiming ? AimFOV : ExploreFOV);
+		CurrentBaseFOV = FMath::FInterpTo(CurrentBaseFOV, TargetFOV, DeltaTime, CameraBlendSpeed);
+	}
+}
+
+
+float ARabbit::GetAimYaw() const
+{
+	if (bQuarterView)
+	{
+		if (AbilityComponent)
+		{
+			const FVector ToAim = (AbilityComponent->GetCurrentAimPoint() - GetActorLocation()).GetSafeNormal2D();
+			if (!ToAim.IsNearlyZero())
+			{
+				return ToAim.Rotation().Yaw;
+			}
+		}
+		return GetActorRotation().Yaw;
+	}
+	return Controller ? Controller->GetControlRotation().Yaw : GetActorRotation().Yaw;
+}
+
+
+// 시점 전환 (V 키, 콘솔 ToggleQuarterView): 카메라 각도는 ViewBlendTime 동안 회전 지연을 켜서 부드럽게 넘어가고,
+// 거리·시야각은 UpdateCameraAndFacing에서 원래대로 부드럽게 바뀜
+void ARabbit::ToggleQuarterView()
+{
+	EndCameraDrag();
+	bIsAiming = false;   // 3인칭에서 우클릭 조준 중에 바꾸면 쿼터뷰에서 조준 상태가 남지 않게
+	bQuarterView = !bQuarterView;
+
+	BeginViewBlend();
+	ApplyViewMode();
+	ApplyGameplayInputMode();
+}
+
+
+void ARabbit::BeginViewBlend()
+{
+	if (SpringArm && ViewBlendTime > 0.f)
+	{
+		SpringArm->bEnableCameraRotationLag = true;
+		SpringArm->CameraRotationLagSpeed = 6.f / ViewBlendTime;   // ViewBlendTime 뒤 남은 차이는 약 0.25%
+		GetWorldTimerManager().SetTimer(ViewBlendTimerHandle, this, &ARabbit::EndViewBlend, ViewBlendTime, false);
+	}
+}
+
+
+void ARabbit::EndViewBlend()
+{
+	if (SpringArm)
+	{
+		SpringArm->bEnableCameraRotationLag = false;
+	}
+}
+
+
+void ARabbit::ApplyViewMode()
+{
+	if (SpringArm)
+	{
+		// 쿼터뷰: 수평 방향(Yaw)은 컨트롤러를 따르고, 내려다보는 각도는 QuarterPitch로 고정.
+		// 벽 충돌은 켜 둠: 처음(55°)에는 껐지만, 15°로 낮추면 카메라 높이가 4m 정도라 뒤쪽 언덕(경사 최대 31°)에 묻힘
+		SpringArm->bInheritPitch = !bQuarterView;
+		SpringArm->bInheritRoll = !bQuarterView;
+		SpringArm->bDoCollisionTest = bThirdPersonArmCollision;
+		SpringArm->SetRelativeRotation(bQuarterView ? FRotator(QuarterPitch, 0.f, 0.f) : ThirdPersonArmRotation);
+		SpringArm->TargetOffset = bQuarterView ? FVector(0.f, 0.f, QuarterLookHeight) : ThirdPersonTargetOffset;
+	}
+	if (AbilityComponent)
+	{
+		AbilityComponent->bAimAtCursor = bQuarterView;
+	}
+	if (InteractionComponent)
+	{
+		InteractionComponent->bPickNearestInRange = bQuarterView;
+	}
+}
+
+
+void ARabbit::ApplyGameplayInputMode()
+{
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC) return;
+
+	if (bQuarterView)
+	{
+		// 커서가 보이는 채로 게임 입력을 받음. 누르고 있는 동안에도 커서를 숨기지 않음
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::LockInFullscreen);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
+	}
+	else
+	{
+		PC->SetInputMode(FInputModeGameOnly());
+	}
+	PC->bShowMouseCursor = bQuarterView;
+}
+
+
+void ARabbit::ZoomIn()
+{
+	if (bQuarterView)
+	{
+		QuarterArmLength = FMath::Clamp(QuarterArmLength - QuarterZoomStep, QuarterMinArmLength, QuarterMaxArmLength);
+	}
+}
+
+
+void ARabbit::ZoomOut()
+{
+	if (bQuarterView)
+	{
+		QuarterArmLength = FMath::Clamp(QuarterArmLength + QuarterZoomStep, QuarterMinArmLength, QuarterMaxArmLength);
 	}
 }
 
@@ -1119,12 +1568,16 @@ void ARabbit::UpdateCameraFeel(float DeltaTime)
 {
 	if (!Camera) return;
 
+	// 흔들림 각도와 시야각 변화는 탐험 시야각(90) 기준 값. 쿼터뷰처럼 시야각이 좁으면 같은 각도가 화면에서 더 크게 보이므로
+	// 시야각 비율만큼 줄여서 화면에서 보이는 흔들림 크기를 맞춤
+	const float FOVScale = ExploreFOV > 1.f ? FMath::Clamp(CurrentBaseFOV / ExploreFOV, 0.2f, 1.f) : 1.f;
+
 	UGameFeelComponent::StepSpring(FOVKick, FOVKickVelocity, 0.f, FOVKickFrequency, FOVKickDampingRatio, DeltaTime);
-	Camera->SetFieldOfView(CurrentBaseFOV + FOVKick);
+	Camera->SetFieldOfView(CurrentBaseFOV + FOVKick * FOVScale);
 
 	CameraTrauma = FMath::Max(0.f, CameraTrauma - TraumaDecay * DeltaTime);
 	ShakeTime += DeltaTime;
-	const float ShakeAngle = CameraTrauma * CameraTrauma * MaxShakeAngle;
+	const float ShakeAngle = CameraTrauma * CameraTrauma * MaxShakeAngle * FOVScale;
 	const float NoiseTime = ShakeTime * ShakeFrequency;
 	const FRotator Shake(
 		ShakeAngle * FMath::PerlinNoise1D(NoiseTime),

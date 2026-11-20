@@ -4,6 +4,7 @@
 #include "NPC/NPCBase.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/Character.h"
+#include "EngineUtils.h"
 
 UInteractionComponent::UInteractionComponent()
 {
@@ -26,6 +27,21 @@ void UInteractionComponent::UpdateInteractableTarget()
 
 	AActor* OwnerActor = GetOwner();
 	if (!OwnerActor) return;
+
+	if (bPickNearestInRange)
+	{
+		float BestDistance = InteractionRange;
+		for (TActorIterator<ANPCBase> It(GetWorld()); It; ++It)
+		{
+			const float Distance = FVector::Dist(OwnerActor->GetActorLocation(), It->GetActorLocation());
+			if (Distance <= BestDistance)
+			{
+				BestDistance = Distance;
+				CurrentInteractableNPC = *It;
+			}
+		}
+		return;
+	}
 
 	UCameraComponent* OwnerCamera = OwnerActor->FindComponentByClass<UCameraComponent>();
 	const FVector TraceStart = OwnerCamera ? OwnerCamera->GetComponentLocation() : OwnerActor->GetActorLocation();

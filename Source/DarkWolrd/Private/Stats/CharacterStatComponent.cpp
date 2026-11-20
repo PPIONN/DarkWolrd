@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Stats/CharacterStatComponent.h"
+#include "Inventory/ItemDefinition.h"
 #include "TimerManager.h"
 
 UCharacterStatComponent::UCharacterStatComponent()
@@ -56,7 +57,7 @@ void UCharacterStatComponent::LevelUp()
 	if (Level >= MaxLevel) return;
 
 	++Level;
-	LevelAccumulatedMaxMP += MPPerLevel + FMath::FloorToFloat(Intelligence / IntelligencePerBonusMP);
+	LevelAccumulatedMaxMP += MPPerLevel + FMath::FloorToFloat(GetTotalIntelligence() / IntelligencePerBonusMP);
 
 	CurrentHP = GetMaxHP();
 	CurrentMP = GetMaxMP();
@@ -68,7 +69,38 @@ void UCharacterStatComponent::LevelUp()
 // 최대 HP: 기본값 + 레벨 보너스 + 체력 보너스 + 장비 보너스 + 소환수 패시브
 float UCharacterStatComponent::GetMaxHP() const
 {
-	return BaseMaxHP + (Level - 1) * HPPerLevel + Vitality * HPPerVitality + EquipmentBonusHP + SummonBonusMaxHP;
+	return BaseMaxHP + (Level - 1) * HPPerLevel + GetTotalVitality() * HPPerVitality + EquipmentBonusHP + SummonBonusMaxHP;
+}
+
+
+void UCharacterStatComponent::SetEquipmentBonus(const FItemStatBonus& Bonus)
+{
+	EquipmentBonusMagicPower = Bonus.MagicPower;
+	EquipmentBonusIntelligence = Bonus.Intelligence;
+	EquipmentBonusVitality = Bonus.Vitality;
+	EquipmentBonusDefense = Bonus.Defense;
+	EquipmentBonusHP = Bonus.MaxHP;
+	EquipmentBonusMP = Bonus.MaxMP;
+	EquipmentBonusAttackSpeed = Bonus.AttackSpeed;
+	EquipmentBonusMoveSpeed = Bonus.MoveSpeed;
+
+	CurrentHP = FMath::Min(CurrentHP, GetMaxHP());
+	CurrentMP = FMath::Min(CurrentMP, GetMaxMP());
+}
+
+
+float UCharacterStatComponent::GetOutgoingDamageMultiplier() const
+{
+	const float Multiplier = 1.f + (GetTotalMagicPower() - DamageMagicPowerReference) * DamagePerMagicPower + GetTotalIntelligence() * DamagePerIntelligence;
+	return FMath::Max(Multiplier, 0.2f);
+}
+
+
+void UCharacterStatComponent::RestoreHP(float Amount)
+{
+	if (Amount <= 0.f) return;
+
+	CurrentHP = FMath::Clamp(CurrentHP + Amount, 0.f, GetMaxHP());
 }
 
 
@@ -101,7 +133,7 @@ bool UCharacterStatComponent::SpendMP(float Amount)
 // 총 방어력: 순수 방어력 + 체력에서 파생된 방어력(체력 2당 1) + 소환수 패시브
 float UCharacterStatComponent::GetTotalDefense() const
 {
-	return BaseDefense + FMath::FloorToFloat(Vitality / 2.f) + SummonBonusDefense;
+	return BaseDefense + EquipmentBonusDefense + FMath::FloorToFloat(GetTotalVitality() / 2.f) + SummonBonusDefense;
 }
 
 
@@ -177,7 +209,7 @@ void UCharacterStatComponent::AddSummonPassive(ESummonPassiveType Type, float Va
 // 이동속도 배율: 1 + 소환수 패시브. 0.1 미만으로는 내려가지 않게 클램프
 float UCharacterStatComponent::GetMoveSpeedMultiplier() const
 {
-	return FMath::Max(1.f + SummonBonusMoveSpeed, 0.1f);
+	return FMath::Max(1.f + SummonBonusMoveSpeed + EquipmentBonusMoveSpeed, 0.1f);
 }
 
 

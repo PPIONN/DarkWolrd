@@ -28,6 +28,10 @@ class URabbitFaceComponent;
 class UTutorialGuideWidget;
 class UDemoFlowWidget;
 class USoundBase;
+class UAnimSequenceBase;
+class UAnimMontage;
+class UInventoryComponent;
+class UItemPickupFeedWidget;
 
 // FOnRabbitDied: 토끼가 쓰러졌을 때 브로드캐스트 (사망 UI 표시 등에 사용)
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRabbitDied);
@@ -93,6 +97,47 @@ protected:
 	// CombatFacingTimeLeft: 공격 후 카메라 방향을 계속 볼 남은 시간(초)
 	float CombatFacingTimeLeft = 0.f;
 
+	// 빠른 회전(공격 순간 / 제자리 회전) 상태: 목표 각도로 TurnRate 속도로 도는 중이면 true.
+	// 예전에는 공격할 때 SetActorRotation으로 한 프레임에 돌아서 몸이 홱 돌아갔음(2026-11-19 수정)
+	bool bQuickTurnActive = false;
+	float QuickTurnYaw = 0.f;
+	float QuickTurnRate = 0.f;
+
+	// StartQuickTurn: 목표 각도로 빠르게 돌기 시작. 서 있는 채로 크게(StandTurnThreshold 이상) 돌면 발 디딤 동작도 재생
+	void StartQuickTurn(float TargetYaw, float Rate);
+
+	// GetAimYaw: 락온이 아닐 때 몸이 봐야 할 조준 방향. 쿼터뷰면 커서(조준점) 쪽, 3인칭이면 카메라 방향
+	float GetAimYaw() const;
+
+	// ApplyViewMode: bQuarterView에 맞춰 스프링암(내려다보는 각도·벽 충돌), 조준 방식, 상호작용 방식을 설정
+	void ApplyViewMode();
+
+	// ZoomIn / ZoomOut: 마우스 휠로 쿼터뷰 카메라 거리 조절
+	void ZoomIn();
+	void ZoomOut();
+
+	// BeginViewBlend / EndViewBlend: 시점 전환·방향 되돌리기 때 ViewBlendTime 동안 카메라 회전 지연을 켰다가 끔(타이머)
+	void BeginViewBlend();
+	void EndViewBlend();
+
+	// ─── 쿼터뷰 화면 회전 ───
+	// 우클릭을 누르는 동안 커서를 숨기고 마우스 좌우 움직임으로 카메라를 돌림(좌우만, 내려다보는 각도는 그대로).
+	// 떼면 커서가 누르기 전 자리로 돌아옴. 휠 클릭은 처음 방향(등장할 때 토끼가 보던 방향)으로 되돌림
+	void StartCameraDrag();
+	void EndCameraDrag();
+	void ResetQuarterYaw();
+
+	bool bCameraDragging = false;
+	FVector2D CameraDragCursorPos = FVector2D(-1.f, -1.f);
+	float QuarterDefaultYaw = 0.f;
+
+	FTimerHandle ViewBlendTimerHandle;
+
+	// 3인칭으로 돌아갈 때 되돌릴 스프링암 원래 설정 (BeginPlay에서 저장)
+	FRotator ThirdPersonArmRotation = FRotator::ZeroRotator;
+	FVector ThirdPersonTargetOffset = FVector::ZeroVector;
+	bool bThirdPersonArmCollision = true;
+
 	// UpdateCameraFeel: 화면 흔들림과 시야각 순간 변화를 적용. 히트스톱 중에도 멈추지 않도록 실제 시간(DeltaTime)으로 돌림
 	void UpdateCameraFeel(float DeltaTime);
 
@@ -126,7 +171,7 @@ protected:
 	void ToggleInventory();
 
 	// Attack: 기본공격 입력 처리. AbilityComponent의 "BasicAttack" 슬롯을 캐스팅/발사하고,
-	// 실제로 발동됐으면(쿨다운 등으로 무시되지 않았으면) 짧은 시간 이동을 잠금
+	// 실제로 발동됐으면(쿨다운 등으로 무시되지 않았으면) 상체 공격 동작을 재생함 (bLockMoveOnAttack이면 잠시 이동도 잠금)
 	void Attack();
 
 	// StartAttackMoveLock: 공격 모션 재생 시간 동안 이동 입력을 무시하도록 잠그고, AttackMoveLockDuration 뒤에 자동 해제
@@ -204,6 +249,10 @@ public:
 	// SetRespawnPoint: 쓰러졌을 때 돌아올 곳을 지금 위치로 옮김 (튜토리얼 목표를 달성할 때마다 호출)
 	void SetRespawnPoint();
 
+	// IsInventoryOpen / CloseInventory: 인벤토리 화면이 열려 있는지, 닫기 (화면 안에서 I·Tab·Esc를 누를 때 화면이 부름)
+	bool IsInventoryOpen() const;
+	void CloseInventory();
+
 	// ─── 디버그/테스트용 ───────────────────────────────────────
 	// PIE 중 `(콘솔 열기) 키를 누르고 "DebugTakeDamage 20" 처럼 입력해서 HUD의 HP/MP 바가
 	// 실제로 반응하는지 확인하는 용도. Exec로 선언된 함수는 콘솔에서 함수 이름 그대로 호출 가능
@@ -233,6 +282,14 @@ public:
 	// DebugKillNearby 3000 → 반경(cm) 안의 적대 몬스터를 전부 쓰러뜨림 (보상도 정상 지급). 던전 웨이브 진행 테스트용
 	UFUNCTION(Exec)
 	void DebugKillNearby(float Radius = 3000.f);
+
+	// DebugGiveItem MoonRing 1 → /Game/Items/DA_Item_MoonRing을 1개 인벤토리에 넣음 (장비는 드랍 확률이 낮아 시험용)
+	UFUNCTION(Exec)
+	void DebugGiveItem(const FString& ItemName, int32 Count = 1);
+
+	// DebugGiveAllItems → /Game/Items의 아이템을 종류마다 1개씩 넣음
+	UFUNCTION(Exec)
+	void DebugGiveAllItems();
 
 	// DebugStartArena → 시작 발판을 밟지 않고 레벨의 첫 번째 몬스터대전 아레나에서 바로 대전 시작
 	UFUNCTION(Exec)
@@ -298,6 +355,79 @@ public:
 	// CombatFacingDuration: 공격한 뒤 이 시간(초) 동안은 카메라(락온 중이면 대상) 방향을 계속 봄 (연속 공격 중에 몸이 이리저리 돌지 않게)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
 	float CombatFacingDuration = 1.2f;
+
+	// AttackTurnRate: 공격할 때 쏘는 방향으로 도는 속도(도/초). 1800이면 뒤돌아보는 데 0.1초 — 손가락을 튕기는 순간과 같음.
+	// 예전에는 한 프레임에 돌았음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float AttackTurnRate = 1800.f;
+
+	// StandTurnThreshold: 공격 직후 서 있을 때 카메라 방향과 몸 방향 차이가 이 각도(도)를 넘어야 몸을 돌림.
+	// 그 아래는 목(LookAt)만 돌아감. 예전에는 조금만 카메라를 돌려도 발을 땅에 붙인 채 몸이 계속 돌았음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float StandTurnThreshold = 50.f;
+
+	// StandTurnRate: 위 상황에서 몸을 돌릴 때의 속도(도/초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Palworld Style")
+	float StandTurnRate = 540.f;
+
+	// ─── 쿼터뷰 (위에서 비스듬히 내려다보는 시점) ───────────────────────────────────────
+	// 소환수 세 마리와 적을 한 화면에서 보도록 카메라가 위에서 비스듬히 내려다보며 토끼를 따라다님(2026-11-20).
+	// 카메라 방향은 고정(마우스로 돌리지 않음)이고, 마우스 커서가 보이며 마법은 커서 쪽으로 날아감.
+	// 카메라의 수평 방향은 컨트롤러 회전의 Yaw를 그대로 씀(쿼터뷰로 바꾼 순간 보던 방향). 이동(WASD)도 이 방향 기준
+
+	// bQuarterView: true면 쿼터뷰, false면 위의 팰월드식 3인칭. 게임 중 V 키(또는 콘솔 ToggleQuarterView)로 바꿔서 비교할 수 있음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	bool bQuarterView = true;
+
+	// QuarterPitch: 내려다보는 각도(도). -90이면 바로 위, -45면 비스듬히. 처음 -55 → -45 → -25 → 사용자 요청으로 -15(2026-11-20)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View", meta = (ClampMin = "-89.0", ClampMax = "-5.0"))
+	float QuarterPitch = -15.f;
+
+	// bQuarterRotateEnabled: true면 쿼터뷰에서 우클릭을 누른 채 끌어 화면을 좌우로 돌리고, 휠 클릭으로 처음 방향으로 되돌림.
+	// 기능은 동작하지만 몰입감에 도움이 될지 아직 판단이 안 서서 일단 꺼 둠(2026-11-20 사용자 결정).
+	// 끄면 쿼터뷰에서도 우클릭은 조준(누르는 동안 몸이 커서를 봄). 켤 때는 TutorialGuideWidget의 조작 안내 문구도 같이 바꿀 것
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	bool bQuarterRotateEnabled = false;
+
+	// QuarterRotateSpeed: 우클릭을 누른 채 마우스를 좌우로 움직일 때 카메라가 도는 속도 (MouseSensitivity에 곱함)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float QuarterRotateSpeed = 1.f;
+
+	// QuarterArmLength: 토끼에서 카메라까지 거리. 마우스 휠로 QuarterMinArmLength~QuarterMaxArmLength 사이를 QuarterZoomStep씩 바꿈
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float QuarterArmLength = 1500.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float QuarterMinArmLength = 900.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float QuarterMaxArmLength = 2400.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float QuarterZoomStep = 150.f;
+
+	// QuarterFOV: 쿼터뷰 시야각. 좁을수록 멀리서 망원으로 보는 것처럼 원근 왜곡이 줄어듦
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float QuarterFOV = 50.f;
+
+	// QuarterLookHeight: 카메라가 바라보는 점의 높이(토끼 중심 기준, cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float QuarterLookHeight = 30.f;
+
+	// ViewBlendTime: 시점을 바꿀 때 카메라 각도가 부드럽게 넘어가는 시간(초)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Quarter View")
+	float ViewBlendTime = 0.8f;
+
+	// ToggleQuarterView: 쿼터뷰 ↔ 팰월드식 3인칭 전환 (V 키, 콘솔 명령)
+	UFUNCTION(Exec, BlueprintCallable, Category = "Camera|Quarter View")
+	void ToggleQuarterView();
+
+	UFUNCTION(BlueprintCallable, Category = "Camera|Quarter View")
+	bool IsQuarterView() const { return bQuarterView; }
+
+	// ApplyGameplayInputMode: 게임 조작으로 돌아갈 때의 입력 모드와 마우스 커서. 쿼터뷰면 커서를 보이고(조준용), 3인칭이면 숨김.
+	// 시작·실패 화면이나 인벤토리를 닫을 때 이걸 부름
+	void ApplyGameplayInputMode();
 
 	// ─── 타격감 (화면 흔들림·시야각 순간 변화·이동감) ───────────────────────────────────────
 
@@ -436,13 +566,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
 	float AttackMoveLockDuration = 0.45f;
 
-	// ForwardMoveSpeed: 카메라가 보는 방향으로 순수하게(옆/뒤 섞임 없이) 이동할 때의 기본(걷기) 속도
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
-	float ForwardMoveSpeed = 300.f;
+	// bLockMoveOnAttack: true면 기본공격 때 AttackMoveLockDuration 동안 멈춰 섬(예전 방식).
+	// false(기본)면 걷거나 뛰면서 공격하고, 공격 동작(AttackAnimation)은 상체에서만 재생됨
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	bool bLockMoveOnAttack = false;
 
-	// NonForwardMoveSpeed: 옆걸음/뒷걸음/대각선 등 카메라 정면이 아닌 방향으로 이동할 때의 속도
+	// ForwardMoveSpeed: 카메라가 보는 방향으로 순수하게(옆/뒤 섞임 없이) 이동할 때의 기본(걷기) 속도.
+	// 다리가 40cm라 300이면 1초에 4걸음을 뛰는 달리기가 되어 150으로 낮춤(걷기 애니메이션 Rabbit_Jog_*이 150 기준).
+	// 바꾸면 ABP_RabbitV2 블렌드 스페이스의 걷기 샘플 GroundSpeed도 같은 값으로 옮겨야 발이 미끄러지지 않음
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
-	float NonForwardMoveSpeed = 300.f;
+	float ForwardMoveSpeed = 150.f;
+
+	// NonForwardMoveSpeed: 옆걸음/뒷걸음/대각선 등 카메라 정면이 아닌 방향으로 이동할 때의 속도 (걷기 애니메이션 기준 150)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float NonForwardMoveSpeed = 150.f;
 
 	// SprintSpeed: Shift를 누른 채 순수 전진할 때의 속도. 옆/뒤로는 스프린트 적용 안 됨(NonForwardMoveSpeed 유지)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
@@ -506,6 +643,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement|Dash")
 	float MaxDashFallSafetyDuration = 3.f;
 
+	// HitAnimation: 맞았을 때 재생할 움찔 애니메이션. 상체(ABP의 UpperBody 슬롯, Spine1 위)에서만 재생해서
+	// 걷던 다리는 그대로 움직임. 쓰러지는 타격이면 생략(사망 애니메이션이 이어짐). 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimSequenceBase* HitAnimation = nullptr;
+
+	// AttackAnimation: 기본공격 동작(오른팔을 뻗으며 손가락을 튕김). 상체(UpperBody 슬롯)에서만 재생해서
+	// 이동 중에도 다리는 걷기/달리기를 계속함. 공격속도 배율만큼 빨라짐.
+	// 이걸 쓰면 AbilityComponent의 BasicAttack CastMontage(전신, DefaultSlot)는 비워 둘 것 — 둘 다 있으면 둘 다 재생됨
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimSequenceBase* AttackAnimation = nullptr;
+
+	// TurnStepAnimation: 서 있는 채로 크게 돌 때(공격 순간 뒤돌기, 공격 직후 카메라 쪽으로 돌기) 재생하는 제자리 발 디딤.
+	// 전신 슬롯(DefaultSlot)이라 다리가 발을 떼며 돌고, 공격 중이면 상체는 UpperBody 슬롯의 공격 동작이 그대로 덮음.
+	// 비워두면 생략(발을 붙인 채 돎)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimSequenceBase* TurnStepAnimation = nullptr;
+
+	// DeathAnimation: 쓰러질 때 재생할 애니메이션. 마지막 포즈(누운 자세)를 부활할 때까지 유지함. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimSequenceBase* DeathAnimation = nullptr;
+
+	// MeditateAnimation: 명상(마나 회복) 버튼을 누르고 있는 동안 반복 재생할 애니메이션. 비워두면 생략
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimSequenceBase* MeditateAnimation = nullptr;
+
 	// AbilityComponent: 캐스팅 슬롯·오브 스폰/발사를 담당하는 컴포넌트.
 	// 기본공격("BasicAttack")과 앞으로 추가할 스킬들이 전부 이 컴포넌트의 Abilities 맵에 등록되어 동작한다
 	UPROPERTY(VisibleAnywhere, Category = "Ability")
@@ -523,6 +685,10 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Interaction")
 	UInteractionComponent* InteractionComponent;
 
+	// InventoryComponent: 아이템 칸과 장착한 장비. 장비 능력치는 StatComponent의 장비 보너스로 들어감
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
+	UInventoryComponent* InventoryComponent;
+
 	// GameFeelComponent: 늘어남·찌그러짐, 기울기, 히트스톱 연출
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Game Feel")
 	UGameFeelComponent* GameFeelComponent;
@@ -532,9 +698,17 @@ public:
 	URabbitFaceComponent* FaceComponent;
 
 	// TSubclassOf<UUserWidget>: UUserWidget을 상속한 클래스(주로 블루프린트 UI)만 받는 타입
-	// InventoryWidgetClass: 에디터에서 지정할 인벤토리 UI의 블루프린트 클래스
+	// InventoryWidgetClass: 인벤토리 화면(I·Tab). 기본은 코드로 그린 UInventoryWidget(팰월드식: 왼쪽 아이템 칸, 오른쪽 캐릭터와 장비).
+	// 다른 위젯으로 바꾸면 그 위젯은 열고 닫히기만 함
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UUserWidget> InventoryWidgetClass;
+
+	// PickupFeedWidgetClass: 아이템을 주우면 화면 오른쪽에 "+1 박쥐 날개"를 띄우는 위젯. 비워두면 생략
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UItemPickupFeedWidget> PickupFeedWidgetClass;
+
+	UPROPERTY()
+	UItemPickupFeedWidget* PickupFeedWidgetNative = nullptr;
 
 	// InventoryWidgetNative: 실제로 화면에 생성된 인벤토리 위젯 객체 (없으면 nullptr)
 	UPROPERTY()
@@ -604,6 +778,12 @@ public:
 private:
 	// bIsMeditating: 명상 중인지 여부. true면 Move() 입력을 무시해 이동이 불가능해짐
 	bool bIsMeditating = false;
+
+	// ActiveMeditateMontage: 명상 애니메이션을 재생 중인 동적 몽타주. 명상을 끝낼 때 이것만 멈춤(공격 몽타주는 건드리지 않음)
+	TWeakObjectPtr<UAnimMontage> ActiveMeditateMontage;
+
+	// GetRabbitAnimInstance: 메시의 애니메이션 인스턴스 (없으면 nullptr)
+	class UAnimInstance* GetRabbitAnimInstance() const;
 
 	// bIsAttackLocked: 공격 모션 재생 중인지 여부. true면 Move() 입력을 무시해 이동이 불가능해짐
 	bool bIsAttackLocked = false;

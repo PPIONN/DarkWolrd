@@ -59,6 +59,16 @@ struct FAbilityData
 	// Cooldown: 이 어빌리티를 사용한 뒤 다시 쓸 수 있기까지 걸리는 시간(초). 0이면 쿨다운 없음
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
 	float Cooldown = 0.f;
+
+	// LaunchDelay: bInstantCast 어빌리티에서 입력 후 오브가 실제로 나가기까지의 시간(초, 공격속도 배율로 나눠짐).
+	// 공격 동작의 발사 순간에 맞추는 용도 — 토끼 기본공격은 손가락을 튕기는 0.1초. 0이면 누르는 즉시 발사
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
+	float LaunchDelay = 0.f;
+
+	// LaunchSocket: bInstantCast 오브가 생겨나는 메시 소켓/본 이름(예: RightHand).
+	// 비워두거나 메시에 없는 이름이면 예전처럼 캐릭터 중심에서 생김
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
+	FName LaunchSocket = NAME_None;
 };
 
 // UAbilityComponent: 캐릭터에 부착해 사용하는 마법 시전 컴포넌트.
@@ -95,6 +105,29 @@ public:
 	// 그만큼 화면 중앙 조준점보다 위로 날아가게 됨. 조준점과 실제 발사 방향을 맞추려고 기본은 사실상 제한 없음(89)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability")
 	float MaxAimDownPitch = 89.f;
+
+	// ─── 커서 조준 (쿼터뷰) ───────────────────────────────────────
+	// 위에서 내려다보는 시점에서는 화면 중앙이 토끼 자신이라 중앙 조준을 쓸 수 없음. 대신 마우스 커서 쪽으로 쏨.
+	// 커서가 없으면(창 밖, 자동 점검 봇) 몸이 보는 방향으로 쏨
+
+	// bAimAtCursor: true면 화면 중앙 대신 마우스 커서 쪽으로 조준하고, 락온도 커서 근처 대상을 고름. 토끼가 쿼터뷰로 바꿀 때 켬
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|Cursor Aim")
+	bool bAimAtCursor = false;
+
+	// CursorSnapRadius: 커서가 적에게서 이 거리(cm) 안에 있으면 그 적을 정확히 겨눔 (작은 박쥐를 커서로 딱 맞추기 어려워서)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|Cursor Aim")
+	float CursorSnapRadius = 120.f;
+
+	// CursorLockOnRadius: 커서 조준 중 Q를 누르면 커서에서 이 거리(cm) 안의 적 중 가장 가까운 대상에 락온.
+	// 없으면 커서 방향 60도 안에서 가장 가까운 적, 그것도 없으면 범위 안 가장 가까운 적
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|Cursor Aim")
+	float CursorLockOnRadius = 600.f;
+
+	// GetCursorAim: 마우스 커서가 가리키는 지점(캐릭터 중심 높이의 수평면 위)과 커서 아래 액터. 커서가 없으면 false
+	bool GetCursorAim(FVector& OutPlanePoint, AActor*& OutHoveredActor) const;
+
+	// GetCurrentAimPoint: 지금 쏘면 오브가 향할 지점 (락온 대상 / 커서 / 화면 중앙). 몸과 고개를 조준 방향으로 돌릴 때 사용
+	FVector GetCurrentAimPoint() const { return GetAimPoint(); }
 
 	// ─── 락온 ───────────────────────────────────────
 
@@ -190,6 +223,10 @@ private:
 	// CastInstantly: 준비 단계 없이 오브를 전부 즉시 생성해서 곧바로 조준 지점으로 발사 (bInstantCast 어빌리티용)
 	void CastInstantly(FName AbilityID, const FAbilityData& Data);
 
+	// LaunchInstantOrbs: CastInstantly의 실제 생성·발사 부분. LaunchDelay가 있으면 그만큼 뒤에 타이머로 호출됨
+	// (그 사이 조준이 바뀌었으면 바뀐 조준점으로 쏨)
+	void LaunchInstantOrbs(FName AbilityID);
+
 	// StartCasting: 캐스팅 슬롯을 점유하고, 오브를 하나씩 순차 스폰하는 타이머를 시작
 	void StartCasting(FName AbilityID, const FAbilityData& Data);
 
@@ -214,6 +251,13 @@ private:
 	// FindLockOnTarget: 화면 중앙 트레이스에 몬스터가 맞으면 그 대상, 아니면 LockOnRange·LockOnMaxAngle 안에서
 	// 벽에 가려지지 않은 적대 몬스터 중 화면 중앙에 가장 가까운 대상 (없으면 nullptr)
 	AActor* FindLockOnTarget() const;
+
+	// FindTargetNear: Point에서 Radius(수평 거리) 안, 토끼에서 LockOnRange 안의 락온 가능한 적 중 Point에 가장 가까운 대상
+	AActor* FindTargetNear(const FVector& Point, float Radius) const;
+
+	// FindTargetInDirection: 수평 방향 Forward에서 MaxAngle 안, LockOnRange 안에서 벽에 가려지지 않은 가장 가까운 적.
+	// MaxAngle이 180 이상이면 방향과 상관없이 가장 가까운 적
+	AActor* FindTargetInDirection(const FVector& Forward, float MaxAngle) const;
 
 	EAbilityCastState CastState = EAbilityCastState::Idle;
 	FName ActiveAbilityID = NAME_None;

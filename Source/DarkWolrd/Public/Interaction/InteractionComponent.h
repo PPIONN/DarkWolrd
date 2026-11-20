@@ -29,6 +29,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
 	float InteractionTraceDistance = 500.f;
 
+	// bPickNearestInRange: true면 조준 없이 범위 안의 가장 가까운 NPC를 고름. 위에서 내려다보는 쿼터뷰에서는
+	// 카메라가 멀고 바닥을 향해서 조준선으로 NPC를 겨눌 수 없음. 토끼가 시점을 바꿀 때 켜고 끔
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
+	bool bPickNearestInRange = false;
+
 	// CurrentInteractableNPC: 지금 이 순간 상호작용 가능한 NPC (범위+조준 둘 다 만족). 없으면 nullptr.
 	// HUD에서 이 값을 읽어 "F: 대화하기" 프롬프트를 표시하면 됨
 	UPROPERTY(BlueprintReadOnly, Category = "Interaction")

@@ -5,6 +5,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
 #include "Stats/CharacterStatComponent.h"
 #include "Monster/BaseMonster.h"
 #include "TimerManager.h"
@@ -154,7 +155,40 @@ void UAbilityComponent::CastInstantly(FName AbilityID, const FAbilityData& Data)
 		}
 	}
 
-	const int32 OrbCount = FMath::Max(Data.BaseOrbCount + BonusOrbCountFromLevel, 1);
+	// 발사 순간을 공격 동작에 맞춤: LaunchDelay가 있으면 그만큼(공격속도가 빠르면 더 짧게) 기다렸다가 생성·발사
+	const float Delay = Data.LaunchDelay / GetAttackSpeedMultiplier();
+	if (Delay > KINDA_SMALL_NUMBER)
+	{
+		FTimerHandle LaunchHandle;
+		GetWorld()->GetTimerManager().SetTimer(LaunchHandle,
+			FTimerDelegate::CreateUObject(this, &UAbilityComponent::LaunchInstantOrbs, AbilityID), Delay, false);
+	}
+	else
+	{
+		LaunchInstantOrbs(AbilityID);
+	}
+}
+
+
+// 즉시 시전 오브를 생성해서 조준 지점으로 발사. LaunchSocket이 메시에 있으면 그 위치(예: 오른손)에서, 없으면 캐릭터 중심에서 생김
+void UAbilityComponent::LaunchInstantOrbs(FName AbilityID)
+{
+	AActor* OwnerActor = GetOwner();
+	const FAbilityData* Data = Abilities.Find(AbilityID);
+	if (!OwnerActor || !Data || !Data->ProjectileClass) return;
+
+	FVector SpawnLocation = OwnerActor->GetActorLocation();
+	if (!Data->LaunchSocket.IsNone())
+	{
+		const ACharacter* OwnerCharacter = Cast<ACharacter>(OwnerActor);
+		const USkeletalMeshComponent* Mesh = OwnerCharacter ? OwnerCharacter->GetMesh() : nullptr;
+		if (Mesh && Mesh->DoesSocketExist(Data->LaunchSocket))
+		{
+			SpawnLocation = Mesh->GetSocketLocation(Data->LaunchSocket);
+		}
+	}
+
+	const int32 OrbCount = FMath::Max(Data->BaseOrbCount + BonusOrbCountFromLevel, 1);
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = OwnerActor;
@@ -165,9 +199,11 @@ void UAbilityComponent::CastInstantly(FName AbilityID, const FAbilityData& Data)
 	for (int32 i = 0; i < OrbCount; ++i)
 	{
 		if (AMagicOrbProjectile* NewOrb = GetWorld()->SpawnActor<AMagicOrbProjectile>(
-			Data.ProjectileClass, OwnerActor->GetActorLocation(), OwnerActor->GetActorRotation(), SpawnParams))
+			Data->ProjectileClass, SpawnLocation, OwnerActor->GetActorRotation(), SpawnParams))
 		{
 			NewOrb->SourceAbilityID = AbilityID;
+			// 마력·지능(장비 포함)에 따른 피해 배율. 기본 능력치면 1배
+			NewOrb->Damage *= CachedStatComponent ? CachedStatComponent->GetOutgoingDamageMultiplier() : 1.f;
 			NewOrbs.Add(NewOrb);
 		}
 	}
@@ -230,6 +266,7 @@ void UAbilityComponent::SpawnNextOrbTick()
 	if (NewOrb)
 	{
 		NewOrb->SourceAbilityID = ActiveAbilityID;
+		NewOrb->Damage *= CachedStatComponent ? CachedStatComponent->GetOutgoingDamageMultiplier() : 1.f;
 
 		const FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
 		NewOrb->AttachToComponent(OwnerActor->GetRootComponent(), AttachRules);
@@ -280,7 +317,7 @@ FVector UAbilityComponent::GetOrbRingOffset(int32 Index, int32 Total, const FAbi
 }
 
 
-// 조준 지점 계산: 락온 대상이 있으면 그 위치(+높이 보정)를, 없으면 화면 중앙 트레이스 결과를 반환
+// 조준 지점 계산: 락온 대상이 있으면 그 위치(+높이 보정)를, 없으면 커서 조준(bAimAtCursor) 또는 화면 중앙 트레이스 결과를 반환
 FVector UAbilityComponent::GetAimPoint() const
 {
 	if (IsValidLockOnTarget(LockedTarget))
@@ -288,9 +325,126 @@ FVector UAbilityComponent::GetAimPoint() const
 		return LockedTarget->GetActorLocation() + FVector(0.f, 0.f, LockOnHeightOffset);
 	}
 
+	if (bAimAtCursor)
+	{
+		// 커서 조준: 커서가 적 위(또는 CursorSnapRadius 안)면 그 적을, 아니면 커서 쪽으로 수평하게 멀리.
+		// 커서가 가리키는 바닥 점을 그대로 겨누면 오브가 바닥에 꽂히므로 캐릭터 높이로 수평하게 날림
+		const AActor* OwnerActor = GetOwner();
+		if (!OwnerActor) return FVector::ZeroVector;
+		const FVector Origin = OwnerActor->GetActorLocation();
+
+		FVector Direction = OwnerActor->GetActorForwardVector().GetSafeNormal2D();
+		FVector PlanePoint;
+		AActor* Hovered = nullptr;
+		if (GetCursorAim(PlanePoint, Hovered))
+		{
+			AActor* AimTarget = IsValidLockOnTarget(Hovered) ? Hovered : FindTargetNear(PlanePoint, CursorSnapRadius);
+			if (AimTarget)
+			{
+				return AimTarget->GetActorLocation() + FVector(0.f, 0.f, LockOnHeightOffset);
+			}
+			const FVector ToCursor = (PlanePoint - Origin).GetSafeNormal2D();
+			if (!ToCursor.IsNearlyZero())
+			{
+				Direction = ToCursor;
+			}
+		}
+		return Origin + Direction * AimTraceDistance;
+	}
+
 	FVector TraceEnd;
 	const FHitResult Hit = PerformAimTrace(TraceEnd);
 	return Hit.bBlockingHit ? FVector(Hit.ImpactPoint) : TraceEnd;
+}
+
+
+// 커서 조준점: 카메라에서 커서를 지나는 광선이 캐릭터 중심 높이의 수평면과 만나는 점. 커서 아래 액터도 함께 찾음
+bool UAbilityComponent::GetCursorAim(FVector& OutPlanePoint, AActor*& OutHoveredActor) const
+{
+	OutHoveredActor = nullptr;
+
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	const APlayerController* PC = OwnerPawn ? Cast<APlayerController>(OwnerPawn->GetController()) : nullptr;
+	if (!PC || !PC->ShouldShowMouseCursor()) return false;
+
+	FVector RayOrigin, RayDirection;
+	if (!PC->DeprojectMousePositionToWorld(RayOrigin, RayDirection) || RayDirection.Z > -KINDA_SMALL_NUMBER) return false;
+
+	const float PlaneZ = OwnerPawn->GetActorLocation().Z;
+	OutPlanePoint = RayOrigin + RayDirection * ((PlaneZ - RayOrigin.Z) / RayDirection.Z);
+
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(OwnerPawn);
+	for (AMagicOrbProjectile* Orb : PendingOrbs)
+	{
+		if (Orb)
+		{
+			QueryParams.AddIgnoredActor(Orb);
+		}
+	}
+	FHitResult Hit;
+	if (GetWorld()->LineTraceSingleByChannel(Hit, RayOrigin, RayOrigin + RayDirection * (AimTraceDistance * 2.f), ECC_Visibility, QueryParams))
+	{
+		OutHoveredActor = Hit.GetActor();
+	}
+	return true;
+}
+
+
+AActor* UAbilityComponent::FindTargetNear(const FVector& Point, float Radius) const
+{
+	const AActor* OwnerActor = GetOwner();
+	if (!OwnerActor) return nullptr;
+
+	AActor* BestTarget = nullptr;
+	float BestDistSq = FMath::Square(Radius);
+	for (TActorIterator<ABaseMonster> It(GetWorld()); It; ++It)
+	{
+		ABaseMonster* Monster = *It;
+		if (!IsValidLockOnTarget(Monster)) continue;
+		if (FVector::Dist(OwnerActor->GetActorLocation(), Monster->GetActorLocation()) > LockOnRange) continue;
+
+		const float DistSq = FVector::DistSquared2D(Point, Monster->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			BestTarget = Monster;
+		}
+	}
+	return BestTarget;
+}
+
+
+AActor* UAbilityComponent::FindTargetInDirection(const FVector& Forward, float MaxAngle) const
+{
+	const AActor* OwnerActor = GetOwner();
+	if (!OwnerActor) return nullptr;
+
+	const FVector Origin = OwnerActor->GetActorLocation();
+	const float MinDot = MaxAngle >= 180.f ? -2.f : FMath::Cos(FMath::DegreesToRadians(MaxAngle));
+
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(OwnerActor);
+
+	AActor* BestTarget = nullptr;
+	float BestDistSq = FMath::Square(LockOnRange);
+	for (TActorIterator<ABaseMonster> It(GetWorld()); It; ++It)
+	{
+		ABaseMonster* Monster = *It;
+		if (!IsValidLockOnTarget(Monster)) continue;
+
+		const FVector ToMonster = Monster->GetActorLocation() - Origin;
+		const float DistSq = ToMonster.SizeSquared();
+		if (DistSq >= BestDistSq || FVector::DotProduct(Forward, ToMonster.GetSafeNormal2D()) < MinDot) continue;
+
+		FCollisionQueryParams SightParams = QueryParams;
+		SightParams.AddIgnoredActor(Monster);
+		if (GetWorld()->LineTraceTestByChannel(Origin, Monster->GetActorLocation(), ECC_Visibility, SightParams)) continue;
+
+		BestDistSq = DistSq;
+		BestTarget = Monster;
+	}
+	return BestTarget;
 }
 
 
@@ -359,6 +513,32 @@ void UAbilityComponent::ToggleLockOn()
 // 락온 대상 찾기: 화면 중앙에 정확히 맞은 몬스터가 우선, 없으면 카메라 정면 원뿔 안에서 화면 중앙에 가장 가까운 몬스터
 AActor* UAbilityComponent::FindLockOnTarget() const
 {
+	// 커서 조준: 커서 아래 적 → 커서 근처(CursorLockOnRadius) 적 → 커서 방향 60° 안 가장 가까운 적 → 범위 안 가장 가까운 적.
+	// 처음에는 마지막을 '몸 앞 60°'로 했는데, 공격하면 몸이 커서 쪽으로 돌아서 커서가 적과 동떨어져 있으면 락온이 계속 실패했음
+	if (bAimAtCursor && GetOwner())
+	{
+		FVector PlanePoint;
+		AActor* Hovered = nullptr;
+		if (GetCursorAim(PlanePoint, Hovered))
+		{
+			if (IsValidLockOnTarget(Hovered)
+				&& FVector::Dist(GetOwner()->GetActorLocation(), Hovered->GetActorLocation()) <= LockOnRange)
+			{
+				return Hovered;
+			}
+			if (AActor* NearCursor = FindTargetNear(PlanePoint, CursorLockOnRadius))
+			{
+				return NearCursor;
+			}
+			const FVector ToCursor = (PlanePoint - GetOwner()->GetActorLocation()).GetSafeNormal2D();
+			if (AActor* InCursorDirection = ToCursor.IsNearlyZero() ? nullptr : FindTargetInDirection(ToCursor, 60.f))
+			{
+				return InCursorDirection;
+			}
+		}
+		return FindTargetInDirection(GetOwner()->GetActorForwardVector().GetSafeNormal2D(), 180.f);
+	}
+
 	FVector TraceEnd;
 	const FHitResult Hit = PerformAimTrace(TraceEnd);
 	if (Hit.bBlockingHit && IsValidLockOnTarget(Hit.GetActor()))

@@ -114,6 +114,22 @@ void UCrosshairWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
 	const ARabbit* Rabbit = Cast<ARabbit>(GetOwningPlayerPawn());
+
+	// 쿼터뷰는 마우스 커서로 조준하므로 화면 중앙 조준점을 숨김
+	const bool bShowLines = !(Rabbit && Rabbit->IsQuarterView());
+	if (bShowLines != bLinesShown)
+	{
+		bLinesShown = bShowLines;
+		for (UCanvasPanelSlot* LineSlot : LineSlots)
+		{
+			if (LineSlot && LineSlot->Content) LineSlot->Content->SetVisibility(bShowLines ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
+		for (UCanvasPanelSlot* LineSlot : LineOutlineSlots)
+		{
+			if (LineSlot && LineSlot->Content) LineSlot->Content->SetVisibility(bShowLines ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
+	}
+
 	const float TargetGap = (Rabbit && Rabbit->IsAiming()) ? AimGap : Gap;
 	if (!FMath::IsNearlyEqual(CurrentGapValue, TargetGap, 0.01f))
 	{

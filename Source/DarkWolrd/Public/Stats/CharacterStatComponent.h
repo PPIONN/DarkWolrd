@@ -7,6 +7,8 @@
 #include "Summon/SummonTypes.h"
 #include "CharacterStatComponent.generated.h"
 
+struct FItemStatBonus;
+
 // FOnCharacterLevelUp: 레벨업이 일어날 때마다 브로드캐스트. AbilityComponent가 이걸 구독해서
 // 스킬 포인트를 지급하는 등, 서로 몰라도 되는 컴포넌트끼리 느슨하게 연결하는 용도
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterLevelUp);
@@ -69,6 +71,53 @@ public:
 	// BaseDefense: 체력에서 파생되는 방어력을 제외한 순수 방어력 (장비 등으로 증가)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Base")
 	int32 BaseDefense = 0;
+
+	// ─── 장비 보너스 (InventoryComponent가 장비를 바꿀 때마다 다시 채움, 저장하지 않음) ───────────────────────────────────────
+	// 위 기본 스탯은 세이브에 그대로 저장되므로, 장비 보너스를 거기에 더하면 저장·불러오기 때마다 두 번 쌓임. 그래서 따로 둠
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats|Equipment")
+	int32 EquipmentBonusMagicPower = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats|Equipment")
+	int32 EquipmentBonusIntelligence = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats|Equipment")
+	int32 EquipmentBonusVitality = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats|Equipment")
+	int32 EquipmentBonusDefense = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats|Equipment")
+	float EquipmentBonusMoveSpeed = 0.f;
+
+	// SetEquipmentBonus: 장비 능력치 합계를 적용. 최대 HP·MP가 줄면 현재 HP·MP도 최대치에 맞춰 줄임
+	void SetEquipmentBonus(const FItemStatBonus& Bonus);
+
+	// GetTotalMagicPower / GetTotalIntelligence / GetTotalVitality: 기본 + 장비
+	UFUNCTION(BlueprintCallable, Category = "Stats|Base")
+	int32 GetTotalMagicPower() const { return MagicPower + EquipmentBonusMagicPower; }
+
+	UFUNCTION(BlueprintCallable, Category = "Stats|Base")
+	int32 GetTotalIntelligence() const { return Intelligence + EquipmentBonusIntelligence; }
+
+	UFUNCTION(BlueprintCallable, Category = "Stats|Base")
+	int32 GetTotalVitality() const { return Vitality + EquipmentBonusVitality; }
+
+	// DamageMagicPowerReference: 이 마력일 때 평타 피해가 오브에 적힌 값 그대로(1배). 기본 마력(5)과 같게 둬서 장비가 없으면 예전과 같음
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Combat|Formula")
+	float DamageMagicPowerReference = 5.f;
+
+	// DamagePerMagicPower / DamagePerIntelligence: 마력·지능 1당 피해 배율 증가 (0.05 = 5%)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Combat|Formula")
+	float DamagePerMagicPower = 0.05f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Combat|Formula")
+	float DamagePerIntelligence = 0.025f;
+
+	// GetOutgoingDamageMultiplier: 토끼 마법이 주는 피해 배율. 1 + (마력 - 기준) × 5% + 지능 × 2.5%, 최소 0.2.
+	// 예전에는 마력이 피해에 쓰이지 않아(오브 피해 고정) 무기의 마력 보너스가 의미가 없었음(2026-11-20)
+	UFUNCTION(BlueprintCallable, Category = "Stats|Combat")
+	float GetOutgoingDamageMultiplier() const;
 
 	// ─── 재생력 ───────────────────────────────────────
 
@@ -140,6 +189,10 @@ public:
 	// GetMaxMP: 누적된 레벨업 보너스와 장비 보너스를 반영한 최대 MP
 	UFUNCTION(BlueprintCallable, Category = "Stats|MP")
 	float GetMaxMP() const;
+
+	// RestoreHP: 지정한 양만큼 HP를 회복시키되 최대치를 넘지 않음 (포션 등)
+	UFUNCTION(BlueprintCallable, Category = "Stats|HP")
+	void RestoreHP(float Amount);
 
 	// RestoreMP: 지정한 양만큼 MP를 회복시키되 최대치를 넘지 않음 (명상 등 회복 수단에서 사용)
 	UFUNCTION(BlueprintCallable, Category = "Stats|MP")

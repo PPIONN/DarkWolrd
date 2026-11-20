@@ -8,6 +8,9 @@
 #include "Character/RabbitFaceComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
@@ -316,12 +319,27 @@ void UMonsterCompanionComponent::SpawnSummons()
 		++SpawnedCount;
 	}
 
-	// 플레이어 시전 동작
+	// 플레이어 시전 동작. 서 있으면 몽타주 그대로(전신), 움직이는 중이면 같은 동작을 상체(UpperBody 슬롯)에서만 재생.
+	// 예전에는 걷다가 소환하면 전신 몽타주라 다리가 멈춘 채 미끄러졌음 (2026-11-19)
 	if (SpawnedCount > 0 && SummonCastMontage)
 	{
 		if (ACharacter* OwnerCharacter = Cast<ACharacter>(OwnerActor))
 		{
-			OwnerCharacter->PlayAnimMontage(SummonCastMontage);
+			UAnimInstance* Anim = OwnerCharacter->GetMesh() ? OwnerCharacter->GetMesh()->GetAnimInstance() : nullptr;
+			UAnimSequenceBase* UpperBodySequence = nullptr;
+			if (OwnerCharacter->GetVelocity().Size2D() > 10.f && SummonCastMontage->SlotAnimTracks.Num() > 0
+				&& SummonCastMontage->SlotAnimTracks[0].AnimTrack.AnimSegments.Num() > 0)
+			{
+				UpperBodySequence = SummonCastMontage->SlotAnimTracks[0].AnimTrack.AnimSegments[0].GetAnimReference();
+			}
+			if (Anim && UpperBodySequence)
+			{
+				Anim->PlaySlotAnimationAsDynamicMontage(UpperBodySequence, TEXT("UpperBody"), 0.1f, 0.2f, 1.f);
+			}
+			else
+			{
+				OwnerCharacter->PlayAnimMontage(SummonCastMontage);
+			}
 		}
 	}
 }

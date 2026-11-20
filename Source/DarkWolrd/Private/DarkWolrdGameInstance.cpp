@@ -5,6 +5,7 @@
 #include "SaveGame/CharacterManifestSaveGame.h"
 #include "Stats/CharacterStatComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
+#include "Inventory/InventoryComponent.h"
 #include "Monster/BaseMonster.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
@@ -129,6 +130,13 @@ void UDarkWolrdGameInstance::ApplySaveDataToPlayer(const UDarkWolrdSaveGame* Sav
 
 	ApplySaveDataToStatComponent(SaveData, PlayerActor->FindComponentByClass<UCharacterStatComponent>());
 	ApplySaveDataToCompanionComponent(SaveData, PlayerActor->FindComponentByClass<UMonsterCompanionComponent>());
+
+	// 인벤토리: 스탯 다음에 적용해야 장비 보너스가 반영된 최대 HP 안에서 현재 HP가 맞춰짐
+	UInventoryComponent* Inventory = PlayerActor->FindComponentByClass<UInventoryComponent>();
+	if (Inventory && SaveData->bHasInventory)
+	{
+		Inventory->SetContents(SaveData->InventorySlots, SaveData->EquippedItems);
+	}
 }
 
 
@@ -180,6 +188,13 @@ UDarkWolrdSaveGame* UDarkWolrdGameInstance::BuildSaveDataFromCharacter(ACharacte
 		SaveData->HeldCards = CompanionComponent->HeldCards;
 		SaveData->RegisteredMonsters = CompanionComponent->RegisteredMonsters;
 		SaveData->SelectedSummonSlots = CompanionComponent->SelectedSummonSlots;
+	}
+
+	if (const UInventoryComponent* Inventory = PlayerCharacter->FindComponentByClass<UInventoryComponent>())
+	{
+		SaveData->bHasInventory = true;
+		SaveData->InventorySlots = Inventory->Slots;
+		SaveData->EquippedItems = Inventory->Equipped;
 	}
 
 	return SaveData;

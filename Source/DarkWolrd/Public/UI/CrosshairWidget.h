@@ -77,4 +77,7 @@ private:
 	UCanvasPanel* LockOnMarker = nullptr;
 
 	float CurrentGapValue = 7.f;
+
+	// bLinesShown: 화면 중앙 조준점을 보이는 중인지. 쿼터뷰에서는 화면 중앙이 토끼 자신이라 숨김(락온 표시는 그대로)
+	bool bLinesShown = true;
 };

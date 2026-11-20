@@ -7,6 +7,7 @@
 #include "GameFramework/Character.h"
 #include "Summon/SummonTypes.h"
 #include "Combat/CombatFaction.h"
+#include "Inventory/ItemDefinition.h"
 #include "BaseMonster.generated.h"
 
 class UNiagaraSystem;
@@ -130,6 +131,10 @@ public:
 	// CardPickupClass: 드랍할 카드 액터. 비워두면 기본 카드(회전하는 흰 판). 모양을 바꾸려면 MonsterCardPickup을 부모로 BP를 만들어 지정
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
 	TSubclassOf<AMonsterCardPickup> CardPickupClass;
+
+	// ItemDrops: 야생으로 쓰러질 때 떨어뜨리는 아이템 목록. 줄마다 따로 확률을 굴림 (소환수·몬스터대전 상대는 안 떨어뜨림)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Items")
+	TArray<FItemDropEntry> ItemDrops;
 
 	// MonsterName: 화면에 표시할 이름 (카드 획득·도감 등록 알림 등). 비워두면 블루프린트 이름을 씀
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Card")
@@ -305,6 +310,9 @@ public:
 
 	// TryDropMonsterCard: CardDropChance 확률로 이 몬스터의 카드를 죽은 위치에 스폰
 	void TryDropMonsterCard();
+
+	// TryDropItems: ItemDrops의 줄마다 확률을 굴려 아이템을 죽은 자리에 떨어뜨림
+	void TryDropItems();
 
 	// TakeDamage: 몬스터가 데미지를 받을 때 호출되는 함수. 반환값은 실제로 받은 데미지
 	// 언리얼 엔진 기본 데미지 시스템을 오버라이드(재정의)함

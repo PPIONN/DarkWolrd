@@ -2,6 +2,7 @@
 
 #include "Monster/BaseMonster.h"
 #include "Item/MonsterCardPickup.h"
+#include "Item/ItemPickup.h"
 #include "Summon/SummonAIComponent.h"
 #include "AI/WildMonsterAIComponent.h"
 #include "Companion/MonsterCompanionComponent.h"
@@ -275,6 +276,7 @@ void ABaseMonster::Die()
 	if (!bIsPlayerSummon)
 	{
 		TryDropMonsterCard();
+		TryDropItems();
 		GrantKillRewards();
 	}
 	else if (SummonAIComponent)
@@ -388,6 +390,20 @@ void ABaseMonster::TryDropMonsterCard()
 		{
 			UGameplayStatics::PlaySoundAtLocation(this, CardDropSound, GetActorLocation());
 		}
+	}
+}
+
+
+// 아이템 드랍: 줄마다 따로 확률을 굴림. 몬스터대전 상대(카드 확률을 0으로 꺼 둔 쪽)처럼 플레이어를 무시하는 몬스터는 안 떨어뜨림
+void ABaseMonster::TryDropItems()
+{
+	if (bIgnoresPlayerCharacter) return;
+
+	for (const FItemDropEntry& Drop : ItemDrops)
+	{
+		if (!Drop.Item || FMath::FRand() > Drop.Chance) continue;
+		const int32 Count = FMath::RandRange(Drop.MinCount, FMath::Max(Drop.MinCount, Drop.MaxCount));
+		AItemPickup::SpawnDrop(GetWorld(), Drop.Item, Count, GetActorLocation());
 	}
 }
 

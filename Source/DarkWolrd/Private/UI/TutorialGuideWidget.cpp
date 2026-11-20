@@ -81,9 +81,9 @@ TSharedRef<SWidget> UTutorialGuideWidget::RebuildWidget()
 		UTextBlock* ControlsText = MakeText(13.f, FLinearColor(1.f, 1.f, 1.f, 0.9f));
 		ControlsText->SetText(NSLOCTEXT("Guide", "Controls",
 			"WASD 이동   Shift 달리기   Space 점프\n"
-			"좌클릭 마법   우클릭 조준   Q 락온\n"
+			"좌클릭 마법(커서 쪽)   우클릭 조준   Q 락온   I 인벤토리\n"
 			"Y 소환   4+1 소환수 모으기   4+2 내 대상 공격\n"
-			"R 명상(MP 회복)   Esc 두 번 종료"));
+			"R 명상(MP 회복)   V 시점 전환   휠 확대·축소   Esc 두 번 종료"));
 		UCanvasPanelSlot* ControlsSlot = Root->AddChildToCanvas(ControlsText);
 		ControlsSlot->SetAnchors(FAnchors(0.f, 1.f));
 		ControlsSlot->SetAlignment(FVector2D(0.f, 1.f));
@@ -325,8 +325,14 @@ void UTutorialGuideWidget::RefreshObjectiveText()
 		Objective = NSLOCTEXT("Guide", "StepMoveToAim", "Space로 점프해 발판을 넘고 다음 표시로 가세요");
 		break;
 	case ETutorialStep::FirstShot:
-		Objective = NSLOCTEXT("Guide", "StepFirstShot", "좌클릭으로 마법을 두 번 쏴보세요 (우클릭을 누르면 조준)");
+	{
+		// 쿼터뷰는 커서 쪽으로 쏘고 우클릭은 화면 회전이라 안내가 다름
+		const ARabbit* OwnerRabbit = Cast<ARabbit>(GetOwningPlayerPawn());
+		Objective = (OwnerRabbit && OwnerRabbit->IsQuarterView())
+			? NSLOCTEXT("Guide", "StepFirstShotCursor", "좌클릭으로 마법을 두 번 쏴보세요 (마우스 커서 쪽으로 날아갑니다)")
+			: NSLOCTEXT("Guide", "StepFirstShot", "좌클릭으로 마법을 두 번 쏴보세요 (우클릭을 누르면 조준)");
 		break;
+	}
 	case ETutorialStep::HuntFirst:
 		Objective = NSLOCTEXT("Guide", "StepHuntFirst", "표시된 곳의 박쥐를 잡으세요 (Q를 누르면 락온돼서 마법이 따라갑니다)");
 		break;

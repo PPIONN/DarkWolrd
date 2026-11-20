@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/SaveGame.h"
 #include "Item/MonsterCardData.h"
+#include "Inventory/InventoryComponent.h"
 #include "DarkWolrdSaveGame.generated.h"
 
 // UDarkWolrdSaveGame: 캐릭터 한 명의 세이브 데이터.
@@ -68,4 +69,18 @@ public:
 	// SelectedSummonSlots: 소환할 종족을 직접 고른 목록 (비어 있으면 도감 앞에서부터 소환)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<TSubclassOf<ABaseMonster>> SelectedSummonSlots;
+
+	// ─── 인벤토리 / 장비 (InventoryComponent 대응, 2026-11-20 추가) ───────────────────────────────────────
+	// 아이템은 아이템 정의 에셋 경로로 저장되므로, 에셋을 옮기거나 지우면 그 칸은 불러올 때 빈 칸이 됨
+
+	// bHasInventory: 인벤토리를 저장한 세이브인지. 이 기능 전에 만든 세이브(false)는 시작 아이템을 그대로 둠
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bHasInventory = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FInventorySlot> InventorySlots;
+
+	// EquippedItems: 장비 칸 6개 (0 무기, 1 머리, 2 몸, 3 신발, 4·5 장신구)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<UItemDefinition*> EquippedItems;
 };

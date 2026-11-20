@@ -182,7 +182,12 @@ void UDemoFlowWidget::ShowScreen(EDemoScreen NewScreen)
 	{
 		Overlay->SetVisibility(ESlateVisibility::Collapsed);
 		UGameplayStatics::SetGamePaused(this, false);
-		if (PC)
+		if (ARabbit* Rabbit = PC ? Cast<ARabbit>(PC->GetPawn()) : nullptr)
+		{
+			// 쿼터뷰면 조준용 커서를 보이고, 3인칭이면 숨김
+			Rabbit->ApplyGameplayInputMode();
+		}
+		else if (PC)
 		{
 			PC->SetInputMode(FInputModeGameOnly());
 			PC->bShowMouseCursor = false;
