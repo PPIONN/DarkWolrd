@@ -9,6 +9,10 @@
 #include "Combat/CombatFaction.h"
 #include "Companion/MonsterCompanionComponent.h"
 #include "Item/MonsterCardPickup.h"
+#include "Inventory/InventoryComponent.h"
+#include "Item/ItemPickup.h"
+#include "Stats/CharacterStatComponent.h"
+#include "UI/InventoryWidget.h"
 #include "Monster/BaseMonster.h"
 #include "UI/DemoFlowWidget.h"
 #include "UI/TutorialGuideWidget.h"
@@ -18,6 +22,9 @@
 #include "UnrealClient.h"
 #include "GameFramework/DamageType.h"
 #include "GameFramework/PlayerController.h"
+#include "UnrealEngine.h"
+#include "RenderTimer.h"
+#include "DynamicRHI.h"
 #include "Kismet/GameplayStatics.h"
 
 namespace
@@ -51,6 +58,60 @@ void FDemoLoopTest::Start()
 	WaitTime = StartWait;
 	SetStage(EStage::Title);
 	TickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateSP(this, &FDemoLoopTest::Tick), StepInterval);
+	FrameTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateSP(this, &FDemoLoopTest::FrameTick), 0.f);
+}
+
+
+bool FDemoLoopTest::FrameTick(float DeltaTime)
+{
+	const bool bPlaying = Stage >= EStage::WalkToAim && Stage <= EStage::WalkToExit && Rabbit.IsValid()
+		&& Rabbit->GetWorld() && !Rabbit->GetWorld()->IsPaused() && WaitTime <= 0.f;
+	if (bPlaying && DeltaTime > 0.f)
+	{
+		FrameMs.Add(DeltaTime * 1000.f);
+		GameMs.Add(FPlatformTime::ToMilliseconds(GGameThreadTime));
+		RenderMs.Add(FPlatformTime::ToMilliseconds(GRenderThreadTime));
+		GpuMs.Add(FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles()));
+	}
+	return !bQuitRequested;
+}
+
+
+void FDemoLoopTest::LogPerformance() const
+{
+	if (FrameMs.Num() == 0) return;
+
+	const auto Stats = [](TArray<float> Values, float& OutAvg, float& OutMedian, float& OutP95, float& OutP99, float& OutMax)
+	{
+		Values.Sort();
+		double Sum = 0.0;
+		for (const float Value : Values)
+		{
+			Sum += Value;
+		}
+		OutAvg = static_cast<float>(Sum / Values.Num());
+		OutMedian = Values[Values.Num() / 2];
+		OutP95 = Values[FMath::Min(Values.Num() - 1, FMath::FloorToInt(Values.Num() * 0.95f))];
+		OutP99 = Values[FMath::Min(Values.Num() - 1, FMath::FloorToInt(Values.Num() * 0.99f))];
+		OutMax = Values.Last();
+	};
+	float FA, FMed, F95, F99, FMax, GA, GMed, G95, G99, GMax, RA, RMed, R95, R99, RMax, PA, PMed, P95, P99, PMax;
+	Stats(FrameMs, FA, FMed, F95, F99, FMax);
+	Stats(GameMs, GA, GMed, G95, G99, GMax);
+	Stats(RenderMs, RA, RMed, R95, R99, RMax);
+	Stats(GpuMs, PA, PMed, P95, P99, PMax);
+
+	double TotalMs = 0.0;
+	int32 Over16 = 0;
+	for (const float Value : FrameMs)
+	{
+		TotalMs += Value;
+		Over16 += Value > 16.7f ? 1 : 0;
+	}
+	UE_LOG(LogTemp, Display, TEXT("[LoopTest] perf %dx%d: %d frames in %.1fs, avg %.1f fps (1%% low %.1f fps), frames over 16.7ms %.1f%%"),
+		GSystemResolution.ResX, GSystemResolution.ResY, FrameMs.Num(), TotalMs / 1000.0, 1000.f / FA, 1000.f / F99, 100.f * Over16 / FrameMs.Num());
+	UE_LOG(LogTemp, Display, TEXT("[LoopTest] perf ms avg/median/p95/p99/max  frame %.2f/%.2f/%.2f/%.2f/%.2f  game %.2f/%.2f/%.2f  render %.2f/%.2f/%.2f  gpu %.2f/%.2f/%.2f/%.2f"),
+		FA, FMed, F95, F99, FMax, GA, GMed, G95, RA, RMed, R95, PA, PMed, P95, P99);
 }
 
 
@@ -96,6 +157,7 @@ void FDemoLoopTest::SetRoute(TArray<FVector> NewRoute)
 void FDemoLoopTest::Fail(const FString& Reason)
 {
 	UE_LOG(LogTemp, Display, TEXT("[LoopTest] FAIL at %.0fs, %s: %s"), TotalTime, *Rabbit->GetActorLocation().ToCompactString(), *Reason);
+	LogPerformance();
 	StopMoving();
 	SetStage(EStage::Finished, TEXT("LoopTest_Fail"));
 }
@@ -145,6 +207,31 @@ void FDemoLoopTest::LookAt(const FVector& Location) const
 	{
 		Controller->SetControlRotation((Location - Rabbit->GetActorLocation()).Rotation());
 	}
+}
+
+
+FString FDemoLoopTest::DescribeInventory() const
+{
+	const UInventoryComponent* Inventory = Rabbit.IsValid() ? Rabbit->FindComponentByClass<UInventoryComponent>() : nullptr;
+	if (!Inventory) return TEXT("no inventory");
+
+	FString Items;
+	for (const FInventorySlot& Slot : Inventory->Slots)
+	{
+		if (!Slot.IsEmpty())
+		{
+			Items += FString::Printf(TEXT(" %s x%d,"), *Slot.Item->GetName().Replace(TEXT("DA_Item_"), TEXT("")), Slot.Count);
+		}
+	}
+	FString Equipped;
+	for (const UItemDefinition* Item : Inventory->Equipped)
+	{
+		if (Item)
+		{
+			Equipped += FString::Printf(TEXT(" %s,"), *Item->GetName().Replace(TEXT("DA_Item_"), TEXT("")));
+		}
+	}
+	return FString::Printf(TEXT("%d slots:%s equipped:%s"), Inventory->GetUsedSlotCount(), *Items, *Equipped);
 }
 
 
@@ -368,6 +455,16 @@ void FDemoLoopTest::Step()
 		if (Companion->WildKillCount > StartKillCount)
 		{
 			UE_LOG(LogTemp, Display, TEXT("[LoopTest] first monster killed"));
+			{
+				FString Drops;
+				int32 NumDrops = 0;
+				for (TActorIterator<AItemPickup> It(Rabbit->GetWorld()); It; ++It)
+				{
+					++NumDrops;
+					Drops += FString::Printf(TEXT(" %s x%d,"), It->Item ? *It->Item->GetName().Replace(TEXT("DA_Item_"), TEXT("")) : TEXT("?"), It->Count);
+				}
+				UE_LOG(LogTemp, Display, TEXT("[LoopTest] item drops on the ground: %d%s"), NumDrops, *Drops);
+			}
 			StopMoving();
 			SetStage(EStage::PickUpCard, TEXT("LoopTest_4_CardDropped"));
 		}
@@ -381,6 +478,7 @@ void FDemoLoopTest::Step()
 		if (Companion->RegisteredMonsters.Num() > 0)
 		{
 			UE_LOG(LogTemp, Display, TEXT("[LoopTest] card registered: %d species"), Companion->RegisteredMonsters.Num());
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] inventory after walking to the card: %s"), *DescribeInventory());
 			StopMoving();
 			SetStage(EStage::Summon, TEXT("LoopTest_5_CardRegistered"));
 		}
@@ -403,14 +501,74 @@ void FDemoLoopTest::Step()
 		if (Companion->AreSummonsActive())
 		{
 			UE_LOG(LogTemp, Display, TEXT("[LoopTest] summoned: %d active"), Companion->ActiveSummons.Num());
-			SetRoute(RouteToBats);
-			SetStage(EStage::WalkToBats, TEXT("LoopTest_6_Summoned"));
+			SetStage(EStage::CheckInventory, TEXT("LoopTest_6_Summoned"));
 		}
 		else
 		{
 			PressKey(EKeys::Y);
 		}
 		break;
+
+	case EStage::CheckInventory:
+	{
+		// I로 인벤토리를 열고 첫 칸을 골라 설명이 보이게 찍은 다음, 장비 빼기·끼기와 물약 사용으로 능력치가 바뀌는지 기록하고 닫음
+		UInventoryComponent* Inventory = Rabbit->FindComponentByClass<UInventoryComponent>();
+		const UCharacterStatComponent* Stat = Rabbit->FindComponentByClass<UCharacterStatComponent>();
+		if (StageTime <= StepInterval)
+		{
+			// 아이콘이 전부 보이게 아이템을 종류마다 1개씩 넣고 엶
+			Rabbit->DebugGiveAllItems();
+			PressKey(EKeys::I);
+		}
+		else if (StageTime >= 1.f && StageTime < 1.f + StepInterval)
+		{
+			if (UInventoryWidget* InventoryScreen = Cast<UInventoryWidget>(Rabbit->InventoryWidgetNative))
+			{
+				InventoryScreen->SelectSlot(EInventorySlotKind::Inventory, 0);
+			}
+		}
+		else if (StageTime >= 1.75f && !bShotTaken && Inventory && Stat)
+		{
+			bShotTaken = true;
+			TakeShot(TEXT("LoopTest_6b_Inventory"));
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] inventory open=%d, %s, magic %d, damage x%.2f, max HP %.0f"),
+				Rabbit->IsInventoryOpen() ? 1 : 0, *DescribeInventory(), Stat->GetTotalMagicPower(), Stat->GetOutgoingDamageMultiplier(), Stat->GetMaxHP());
+
+			// 무기를 빼면 마력이 기본값으로, 다시 끼면 돌아와야 함
+			const int32 MagicWith = Stat->GetTotalMagicPower();
+			UItemDefinition* Weapon = Inventory->Equipped.IsValidIndex(0) ? Inventory->Equipped[0] : nullptr;
+			if (Weapon && Inventory->Unequip(0))
+			{
+				const int32 MagicWithout = Stat->GetTotalMagicPower();
+				const int32 WandSlot = Inventory->Slots.IndexOfByPredicate([Weapon](const FInventorySlot& Slot) { return Slot.Item == Weapon; });
+				const bool bReequipped = Inventory->EquipFromSlot(WandSlot);
+				UE_LOG(LogTemp, Display, TEXT("[LoopTest] equipment check: magic %d -> unequip %d -> re-equip %d (%s)"),
+					MagicWith, MagicWithout, Stat->GetTotalMagicPower(), bReequipped && MagicWithout < MagicWith && Stat->GetTotalMagicPower() == MagicWith ? TEXT("ok") : TEXT("WRONG"));
+			}
+
+			// 물약: HP가 덜 찼으면 써지고 개수가 줄어야 함
+			const int32 PotionSlot = Inventory->Slots.IndexOfByPredicate([](const FInventorySlot& Slot) { return !Slot.IsEmpty() && Slot.Item->HealHP > 0.f; });
+			if (PotionSlot != INDEX_NONE)
+			{
+				const int32 Before = Inventory->Slots[PotionSlot].Count;
+				const float HPBefore = Stat->CurrentHP;
+				FText Message;
+				const bool bUsed = Inventory->UseSlot(PotionSlot, Message);
+				UE_LOG(LogTemp, Display, TEXT("[LoopTest] potion check: used=%d, count %d -> %d, HP %.0f -> %.0f / %.0f, message '%s'"),
+					bUsed ? 1 : 0, Before, Inventory->Slots[PotionSlot].Count, HPBefore, Stat->CurrentHP, Stat->GetMaxHP(), *Message.ToString());
+			}
+		}
+		else if (StageTime >= 2.25f)
+		{
+			if (Rabbit->IsInventoryOpen())
+			{
+				PressKey(EKeys::I);
+			}
+			SetRoute(RouteToBats);
+			SetStage(EStage::WalkToBats);
+		}
+		break;
+	}
 
 	case EStage::WalkToBats:
 		if (FollowRoute())
@@ -471,6 +629,7 @@ void FDemoLoopTest::Step()
 		{
 			StopMoving();
 			UE_LOG(LogTemp, Display, TEXT("[LoopTest] exit reached in %.0fs"), TotalTime);
+			UE_LOG(LogTemp, Display, TEXT("[LoopTest] inventory at exit: %s"), *DescribeInventory());
 			SetStage(EStage::WaitClear);
 		}
 		else if (FollowRoute())
@@ -499,6 +658,7 @@ void FDemoLoopTest::Step()
 	case EStage::AfterRestart:
 		if (Screen == EDemoScreen::Title && !ShotOnce(TEXT("LoopTest_9_Restarted")))
 		{
+			LogPerformance();
 			UE_LOG(LogTemp, Display, TEXT("[LoopTest] PASS in %.0fs, rabbit died %d times (1 on purpose)"), TotalTime, DeathCount);
 			SetStage(EStage::Finished);
 		}

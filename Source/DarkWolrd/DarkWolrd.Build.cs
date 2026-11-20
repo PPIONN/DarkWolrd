@@ -15,7 +15,8 @@ public class DarkWolrd : ModuleRules
 		// NavigationSystem: 소환수 배회 지점을 내비메시 위의 갈 수 있는 곳에서 고를 때 사용
 		// AssetRegistry: 테스트 명령 DebugGiveCard가 몬스터 블루프린트를 이름으로 찾을 때 사용
 		// Slate / SlateCore: 몬스터 HP바 위젯이 진행바 스타일(FProgressBarStyle)을 코드로 바꿀 때 사용
-		PrivateDependencyModuleNames.AddRange(new string[] { "Niagara", "AIModule", "NavigationSystem", "AssetRegistry", "Slate", "SlateCore" });
+		// RenderCore / RHI: 자동 점검 봇이 게임·렌더 스레드와 GPU 프레임 시간을 기록할 때 사용 (DemoLoopTest 성능 기록)
+		PrivateDependencyModuleNames.AddRange(new string[] { "Niagara", "AIModule", "NavigationSystem", "AssetRegistry", "Slate", "SlateCore", "RenderCore", "RHI" });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
