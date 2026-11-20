@@ -8,7 +8,7 @@
 
 | 산출물 | 링크 | 비고 |
 | --- | --- | --- |
-| 중간 빌드 (v0.3.0, Windows x64 zip) | **(업로드 후 링크 입력)** | `DarkWolrd-v0.3.0-Win64.zip` · 515 MB (풀면 787 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
+| 중간 빌드 (v0.3.0, Windows x64 zip) | [다운로드](https://drive.google.com/file/d/1MxfXUqYQq9qd8Fa6lopmD66fyy_yJF0E/view?usp=sharing) | `DarkWolrd-v0.3.0-Win64.zip` · 515 MB (풀면 787 MB). 압축을 풀고 `DarkWolrd.exe` 실행 |
 | 볼륨업 수치표 | [VolumeUp.md](../VolumeUp.md) | v0.2.0 / v0.3.0 / v1.0 목표(제안) |
 | 버그 목록 | [BugList.md](../BugList.md) | P0 2, P1 3, P2 8 · 이번 주 고친 것 5 |
 | 성능 개선 전후 기록 | [Performance/v0.3.0.md](../Performance/v0.3.0.md) | GPU 4.16 → 3.70ms, 199 → 218fps, 화면 비교 |
