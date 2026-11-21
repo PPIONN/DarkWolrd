@@ -209,10 +209,16 @@ void UAbilityComponent::LaunchInstantOrbs(FName AbilityID)
 	}
 
 	const FVector AimPoint = GetAimPoint();
+	AActor* HomingTarget = IsLockedOn() ? LockedTarget : nullptr;
 	for (AMagicOrbProjectile* Orb : NewOrbs)
 	{
 		const FVector Direction = (AimPoint - Orb->GetActorLocation()).GetSafeNormal();
-		Orb->Launch(Direction, IsLockedOn() ? LockedTarget : nullptr);
+		// 락온 중이면 유도탄이 되어 사실상 확정으로 맞으므로 피해를 LockOnDamageMultiplier(기본 70%)로 줄임
+		if (HomingTarget)
+		{
+			Orb->Damage *= LockOnDamageMultiplier;
+		}
+		Orb->Launch(Direction, HomingTarget);
 	}
 }
 
@@ -288,13 +294,19 @@ void UAbilityComponent::SpawnNextOrbTick()
 void UAbilityComponent::FireReadyAbility()
 {
 	const FVector AimPoint = GetAimPoint();
+	AActor* HomingTarget = IsLockedOn() ? LockedTarget : nullptr;
 
 	for (AMagicOrbProjectile* Orb : PendingOrbs)
 	{
 		if (!Orb) continue;
 
 		const FVector Direction = (AimPoint - Orb->GetActorLocation()).GetSafeNormal();
-		Orb->Launch(Direction, IsLockedOn() ? LockedTarget : nullptr);
+		// 차지 스킬도 평타와 같은 규칙: 락온 중에 쏘면 피해 LockOnDamageMultiplier배
+		if (HomingTarget)
+		{
+			Orb->Damage *= LockOnDamageMultiplier;
+		}
+		Orb->Launch(Direction, HomingTarget);
 	}
 
 	PendingOrbs.Reset();

@@ -147,6 +147,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|LockOn")
 	float LockOnMaxAngle = 30.f;
 
+	// LockOnDamageMultiplier: 락온 중에 쏜 공격의 피해 배율 (평타·스킬 공통, 0.7 = 70%).
+	// 락온 공격은 대상을 따라 휘어 날아가 사실상 확정으로 맞으므로 그만큼 피해를 줄임. 커서로 직접 겨눠 쏜 공격은 1배
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ability|LockOn", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockOnDamageMultiplier = 0.7f;
+
 	// ToggleLockOn: 이미 락온 중이면 해제. 아니면 화면 중앙에 가장 가까운 적대 몬스터에게 락온
 	UFUNCTION(BlueprintCallable, Category = "Ability|LockOn")
 	void ToggleLockOn();

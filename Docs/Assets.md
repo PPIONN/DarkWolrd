@@ -25,6 +25,9 @@
 | 에셋 | 위치 | 출처 | 비고 |
 | --- | --- | --- | --- |
 | Haru (Dapper Bunny) | `Content/StarterContent/Haru` | Meshy AI로 직접 생성 (유료 플랜) | 예전 시험용 모델 |
+| 해골 몬스터 (Mossy Little Bones) 메시·리그·애니메이션 7종 | `Content/Alice/Bones` | 메시는 Meshy AI로 직접 생성 (유료 플랜), 리그·애니메이션은 Blender에서 직접 제작 (2026-11-21) | 아직 맵에 배치 전이라 설치본에는 없음. 배치하면 위 표로 옮김 |
+| 늑대 몬스터 (Fierce Timberwolf) 메시·리그·애니메이션 7종 | `Content/Alice/Wolf` | 메시는 Meshy AI로 직접 생성 (유료 플랜). 단순화하고 텍스처를 Blender에서 다시 구움. 리그·애니메이션은 Blender에서 직접 제작 (2026-11-21) | 아직 맵에 배치 전이라 설치본에는 없음. 배치하면 위 표로 옮김 |
+| NPC 문포 (Moonpaw) 메시·리그·애니메이션 3종 | `Content/NPC/Moonpaw` | 메시는 Meshy AI로 직접 생성 (유료 플랜). 단순화하고 텍스처를 Blender에서 다시 구움. 리그·애니메이션은 Blender에서 직접 제작 (2026-11-21) | 아직 맵에 배치 전이라 설치본에는 없음. 배치하면 위 표로 옮김 |
 | Mannequin_UE4, LevelPrototyping, ThirdPerson 맵 | `Content/Characters`, `Content/LevelPrototyping`, `Content/ThirdPerson` | Epic Games | 템플릿 기본 에셋 |
 
 ## AI 도구

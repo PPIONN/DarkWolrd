@@ -1,6 +1,9 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "NPC/NPCBase.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimSequenceBase.h"
+#include "Components/SkeletalMeshComponent.h"
 
 ANPCBase::ANPCBase()
 {
@@ -42,13 +45,46 @@ FText ANPCBase::GetNextDialogueLine(bool& bOutIsLastLine)
 }
 
 
-// 대화 시작(또는 진행) 시 호출: 이 대상을 추적 대상으로 설정하고 추적 시작
+// 대화 시작(또는 진행) 시 호출: 이 대상을 추적 대상으로 설정하고 추적 시작.
+// 새 대화의 첫 대사(인덱스 0)이거나 아직 이 플레이어를 보고 있지 않았다면 반가워하는 인사 동작을 재생
 void ANPCBase::StartFacingPlayer(AActor* Player)
 {
 	if (!Player) return;
 
+	const bool bNewConversation = !IsTalking() || TrackedPlayer != Player || CurrentDialogueIndex == 0;
+
 	TrackedPlayer = Player;
 	bIsFacingPlayer = true;
+
+	if (bNewConversation)
+	{
+		PlayGreet();
+	}
+}
+
+
+bool ANPCBase::GetLookAtLocation(FVector& OutLocation) const
+{
+	if (!IsTalking()) return false;
+
+	OutLocation = TrackedPlayer->GetActorLocation() + FVector(0.f, 0.f, LookAtHeightOffset);
+	return true;
+}
+
+
+void ANPCBase::PlayGreet()
+{
+	if (!GreetAnimation) return;
+
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	if (Now - LastGreetTime < GreetCooldown) return;
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	if (!AnimInstance) return;
+
+	AnimInstance->PlaySlotAnimationAsDynamicMontage(GreetAnimation, TEXT("DefaultSlot"), 0.15f, 0.3f);
+	LastGreetTime = Now;
 }
 
 

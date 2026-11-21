@@ -42,6 +42,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "NPC|Facing")
 	void StartFacingPlayer(AActor* Player);
 
+	// GreetAnimation: 대화를 새로 시작할 때(첫 대사) 한 번 재생하는 반가워하는 동작. DefaultSlot에서 재생
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NPC|Animation")
+	TObjectPtr<UAnimSequenceBase> GreetAnimation;
+
+	// GreetCooldown: 인사 동작을 다시 재생하기까지 최소 간격(초). 대사가 한 줄뿐이라 F를 연타해도 매번 인사하지 않게 함
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NPC|Animation", meta = (ClampMin = "0.0"))
+	float GreetCooldown = 6.f;
+
+	// LookAtHeightOffset: 플레이어 액터 위치(캡슐 중심)에서 이만큼 위를 쳐다봄 (머리 높이 근처)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NPC|Facing")
+	float LookAtHeightOffset = 55.f;
+
+	// IsTalking: 지금 플레이어와 대화 중(플레이어 쪽을 보고 있는 중)인지. 애니메이션이 반가운 대기 동작으로 바꿀 때 사용
+	UFUNCTION(BlueprintPure, Category = "NPC|Facing")
+	bool IsTalking() const { return bIsFacingPlayer && IsValid(TrackedPlayer); }
+
+	// GetLookAtLocation: 대화 중이면 쳐다볼 월드 위치(플레이어 머리 근처)를 돌려주고 true. 아니면 false
+	UFUNCTION(BlueprintPure, Category = "NPC|Facing")
+	bool GetLookAtLocation(FVector& OutLocation) const;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -61,4 +81,10 @@ private:
 	// TrackedPlayer: 지금 바라보고 있는 대상(플레이어)
 	UPROPERTY()
 	AActor* TrackedPlayer;
+
+	// LastGreetTime: 마지막으로 인사 동작을 재생한 게임 시간 (쿨다운 계산용)
+	float LastGreetTime = -1000.f;
+
+	// PlayGreet: GreetAnimation을 DefaultSlot 동적 몽타주로 재생 (쿨다운 중이면 건너뜀)
+	void PlayGreet();
 };
